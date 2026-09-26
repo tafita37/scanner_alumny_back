@@ -42,10 +42,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework.authtoken',
+    'corsheaders',
     'accounts',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -185,3 +187,8 @@ DATABASES = {
         },
     }
 }
+
+# Autorise uniquement votre application frontend spécifique
+CORS_ALLOWED_ORIGINS = os.getenv('FRONTEND_URLS', '').split(',')
+
+CORS_ALLOW_CREDENTIALS = True
