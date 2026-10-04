@@ -57,58 +57,41 @@ CREATE TABLE ceo_info(
    FOREIGN KEY(individual_id) REFERENCES individual(id)
 );
 
+CREATE TABLE industry(
+   id SERIAL,
+   name VARCHAR(50)  NOT NULL,
+   description TEXT NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(name)
+);
+
 CREATE TABLE company(
    id SERIAL,
    siren_number VARCHAR(9)  NOT NULL,
    company_name VARCHAR(255)  NOT NULL,
    naf_code VARCHAR(6)  NOT NULL,
    creation_date DATE NOT NULL,
+   industry_id INTEGER NOT NULL,
    city_id INTEGER NOT NULL,
    ceo_info_id INTEGER NOT NULL,
    company_type_id INTEGER NOT NULL,
    PRIMARY KEY(id),
    UNIQUE(siren_number),
+   FOREIGN KEY(industry_id) REFERENCES industry(id),
    FOREIGN KEY(city_id) REFERENCES city(id),
    FOREIGN KEY(ceo_info_id) REFERENCES ceo_info(id),
    FOREIGN KEY(company_type_id) REFERENCES company_type(id)
 );
 
-
-CREATE TABLE tax_regime(
-   id SERIAL,
-   name VARCHAR(50)  NOT NULL,
-   PRIMARY KEY(id),
-   UNIQUE(name)
-);
-
-CREATE TABLE industry(
-   id SERIAL,
-   name VARCHAR(50)  NOT NULL,
-   PRIMARY KEY(id),
-   UNIQUE(name)
-);
-
 CREATE TABLE audit(
    id SERIAL,
-   head_count INTEGER NOT NULL,
-   revenue NUMERIC(15,2)   NOT NULL,
-   publciation_year INTEGER NOT NULL,
-   average_deal_cost DOUBLE PRECISION NOT NULL,
-   average_transaction_cost DOUBLE PRECISION NOT NULL,
    siret_number VARCHAR(14)  NOT NULL,
-   id_1 INTEGER NOT NULL,
-   id_2 INTEGER NOT NULL,
+   head_count INTEGER NOT NULL,
+   revenue DOUBLE PRECISION NOT NULL,
+   profit DOUBLE PRECISION NOT NULL,
+   publciation_year INTEGER NOT NULL,
+   company_id INTEGER NOT NULL,
    PRIMARY KEY(id),
    UNIQUE(siret_number),
-   FOREIGN KEY(id_1) REFERENCES tax_regime(id),
-   FOREIGN KEY(id_2) REFERENCES company(id)
-);
-
-CREATE TABLE industry_company(
-   id SERIAL,
-   id_1 INTEGER NOT NULL,
-   id_2 INTEGER NOT NULL,
-   PRIMARY KEY(id),
-   FOREIGN KEY(id_1) REFERENCES company(id),
-   FOREIGN KEY(id_2) REFERENCES industry(id)
+   FOREIGN KEY(company_id) REFERENCES company(id)
 );

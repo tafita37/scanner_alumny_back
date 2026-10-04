@@ -1,6 +1,16 @@
 from rest_framework import serializers
 
+from .models import Industry
+
 SIREN_LENGTH = 9
+
+
+class IndustrySerializer(serializers.ModelSerializer):
+    """Champs modifiables d'un secteur (l'unicité du nom est vérifiée automatiquement)."""
+
+    class Meta:
+        model = Industry
+        fields = ['name', 'description']
 
 
 class SiretSearchSerializer(serializers.Serializer):
