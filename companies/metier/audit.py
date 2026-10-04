@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from .company import Company
 
@@ -9,13 +10,14 @@ class Audit(models.Model):
     effectif et chiffre d'affaires pour une année de publication.
     """
 
-    siret_number = models.CharField('numéro SIRET', max_length=14, unique=True)
+    siret_number = models.CharField('numéro SIRET', max_length=14)
     head_count = models.IntegerField('effectif')
     revenue = models.FloatField("chiffre d'affaires")
     profit = models.FloatField("bénéfice")
     # La colonne SQL est orthographiée `publciation_year`.
     publication_year = models.IntegerField('année de publication', db_column='publciation_year')
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='audits')
+    audit_date = models.DateField("date d'audit", default=timezone.localdate)
 
     class Meta:
         db_table = 'audit'

@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from .ceo_info import CeoInfo
 from .city import City
