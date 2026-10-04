@@ -91,7 +91,7 @@ CREATE TABLE audit(
    profit DOUBLE PRECISION NOT NULL,
    publciation_year INTEGER NOT NULL,
    company_id INTEGER NOT NULL,
+   audit_date DATE NOT NULL DEFAULT NOW(),
    PRIMARY KEY(id),
-   UNIQUE(siret_number),
    FOREIGN KEY(company_id) REFERENCES company(id)
 );
