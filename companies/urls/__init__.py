@@ -8,4 +8,5 @@ app_name = 'companies'
 
 urlpatterns = [
     path('', include('companies.urls.company_urls')),
+    path('', include('companies.urls.crud_urls')),
 ]

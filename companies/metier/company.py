@@ -3,6 +3,7 @@ from django.db import models
 from .ceo_info import CeoInfo
 from .city import City
 from .company_type import CompanyType
+from .industry import Industry
 
 
 class Company(models.Model):
@@ -12,6 +13,7 @@ class Company(models.Model):
     company_name = models.CharField('raison sociale', max_length=255)
     naf_code = models.CharField('code NAF', max_length=6)
     creation_date = models.DateField('date de création')
+    industry = models.ForeignKey(Industry, on_delete=models.PROTECT, related_name='companies')
     city = models.ForeignKey(City, on_delete=models.PROTECT, related_name='companies')
     ceo_info = models.ForeignKey(CeoInfo, on_delete=models.PROTECT, related_name='companies')
     company_type = models.ForeignKey(CompanyType, on_delete=models.PROTECT, related_name='companies')

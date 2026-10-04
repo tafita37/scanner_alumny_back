@@ -28,6 +28,56 @@ def fetchSiretSociety(siret, nombre=5) :
     return response.json() if response.status_code == 200 else None
 
 
+def fetchCompanyAudits(siren, nombre=5) :
+    url = "https://recherche-entreprises.api.gouv.fr/search"
+    params={
+        "q": siren,
+        "per_page": nombre,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+    except requests.RequestException:
+        # API Recherche d'entreprises injoignable : pas d'audit.
+        return None
+    return response.json() if response.status_code == 200 else None
+
+
+# Tranches d'effectif salarié INSEE -> borne basse de la tranche
+# (l'API ne fournit pas l'effectif exact). "NN" = non renseigné.
+HEAD_COUNT_BY_TRANCHE = {
+    '00': 0, '01': 1, '02': 3, '03': 6, '11': 10, '12': 20, '21': 50, '22': 100,
+    '31': 200, '32': 250, '41': 500, '42': 1000, '51': 2000, '52': 5000, '53': 10000,
+}
+
+
+def format_audits(data, siren):
+    """
+    Met les résultats de l'API Recherche d'entreprises au format du modèle Audit.
+    Seuls les résultats dont le SIREN commence par la saisie et qui publient
+    un chiffre d'affaires sont gardés ; on prend l'année publiée la plus récente.
+    `company_id` vaut None si la société n'est pas encore enregistrée chez nous.
+    """
+    audits = []
+    for result in data.get('results', []):
+        if not result.get('siren', '').startswith(siren):
+            print('not found')
+            continue
+        finances = result.get('finances') or {}
+        years = [year for year, values in finances.items() if values.get('ca') is not None]
+        if not years:
+            continue
+        year = max(years)
+        audits.append({
+            'id': None,
+            'siret_number': (result.get('siege') or {}).get('siret'),
+            'head_count': HEAD_COUNT_BY_TRANCHE.get(result.get('tranche_effectif_salarie')),
+            'profit': finances[year]['resultat_net'],
+            'revenue': finances[year]['ca'],
+            'publication_year': int(year),
+        })
+    return audits
+
+
 def department_code_from_insee(code_commune):
     """Département d'une commune à partir de son code INSEE (3 chiffres en outre-mer : 971..976)."""
     if not code_commune:
@@ -58,6 +108,7 @@ def format_insee_companies(data, company_type_labels):
             ),
             'naf_code': unite.get('activitePrincipaleUniteLegale'),
             'creation_date': unite.get('dateCreationUniteLegale'),
+            'industry_name': None,
             'city_name': adresse.get('libelleCommuneEtablissement'),
             'city_code_insee': adresse.get('codeCommuneEtablissement'),
             'department_code': department_code_from_insee(adresse.get('codeCommuneEtablissement')),
@@ -88,6 +139,7 @@ def search_by_siret(request):
         .order_by('siren_number')
         .values(
             'id', 'siren_number', 'company_name', 'naf_code', 'creation_date',
+            industry_name=F('industry__name'),
             city_name=F('city__name'),
             city_code_insee=F('city__code_insee'),
             department_code=F('city__department_code'),
@@ -111,3 +163,12 @@ def search_by_siret(request):
                 if company['siren_number'] not in known_sirens:
                     companies.append(company)
     return Response(companies, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_audit_informations_by_siren(request, siret) :
+    audits = []
+    siren= siret[:9]
+    data = fetchCompanyAudits(siren, SEARCH_LIMIT)
+    audits = format_audits(data, siren)
+    return Response(audits[0] if audits else None, status=status.HTTP_200_OK)
