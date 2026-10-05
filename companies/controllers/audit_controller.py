@@ -21,6 +21,21 @@ def fetchCity(code_insee) :
     return response.json() if response.status_code == 200 else None
 
 
+def nest_row(row):
+    """
+    Transforme une ligne de .values() en objets imbriqués en suivant les `__` :
+    {'company__city__name': 'Paris'} -> {'company': {'city': {'name': 'Paris'}}}.
+    """
+    nested = {}
+    for key, value in row.items():
+        *parents, field = key.split('__')
+        target = nested
+        for parent in parents:
+            target = target.setdefault(parent, {})
+        target[field] = value
+    return nested
+
+
 def save_city(data):
     """Enregistre une commune renvoyée par l'API Géo, avec ses codes postaux."""
     city = City.objects.create(
@@ -109,3 +124,31 @@ def save_audit(request):
         .get()
     )
     return Response(row, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_audits(request):
+    """
+    Tous les audits, du plus récent au plus ancien. Les clés étrangères sont
+    renvoyées en objets imbriqués (company -> industry, city, company_type, ceo_info -> individual).
+    """
+    audits = (
+        Audit.objects
+        .order_by('-audit_date', '-id')
+        .values(
+            'id', 'siret_number', 'head_count', 'revenue', 'profit', 'publication_year',
+            'audit_date', 'remaining_step',
+            'company__id', 'company__siren_number', 'company__company_name',
+            'company__naf_code', 'company__creation_date',
+            'company__industry__id', 'company__industry__name',
+            'company__city__id', 'company__city__name', 'company__city__code_insee',
+            'company__city__department_code',
+            'company__company_type__id', 'company__company_type__label', 'company__company_type__code',
+            'company__ceo_info__id', 'company__ceo_info__email', 'company__ceo_info__phone_number',
+            'company__ceo_info__job_title',
+            'company__ceo_info__individual__id', 'company__ceo_info__individual__name',
+            'company__ceo_info__individual__first_name',
+        )
+    )
+    return Response([nest_row(row) for row in audits], status=status.HTTP_200_OK)

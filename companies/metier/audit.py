@@ -17,6 +17,7 @@ class Audit(models.Model):
     # La colonne SQL est orthographiée `publciation_year`.
     publication_year = models.IntegerField('année de publication', db_column='publciation_year')
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='audits')
+    remaining_step = models.IntegerField('étapes restantes', default=3)
     audit_date = models.DateField("date d'audit", default=timezone.localdate)
 
     class Meta:
