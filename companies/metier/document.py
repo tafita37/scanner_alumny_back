@@ -7,12 +7,14 @@ from .audit import Audit
 class Document(models.Model):
     """
     Fichier rattaché à un audit : nom d'origine fourni par l'utilisateur,
-    nom unique sous lequel il est stocké, et taille en octets.
+    nom unique sous lequel il est stocké, taille en octets et type MIME
+    (ex. `application/pdf`, `image/png`).
     """
 
     original_name = models.CharField("nom d'origine", max_length=255)
     stored_name = models.CharField('nom de stockage', max_length=255, unique=True)
     size = models.IntegerField('taille (octets)')
+    mime_type = models.CharField('type MIME', max_length=255)
     created_at = models.DateField('date de création', default=timezone.localdate)
     audit = models.ForeignKey(Audit, on_delete=models.PROTECT, related_name='documents')
 

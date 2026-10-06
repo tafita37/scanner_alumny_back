@@ -102,6 +102,7 @@ CREATE TABLE document(
    original_name VARCHAR(255)  NOT NULL,
    stored_name VARCHAR(255)  NOT NULL,
    size INTEGER NOT NULL,
+   mime_type VARCHAR(255)  NOT NULL,
    created_at DATE NOT NULL DEFAULT NOW(),
    audit_id INTEGER NOT NULL,
    PRIMARY KEY(id),

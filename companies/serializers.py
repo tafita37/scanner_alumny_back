@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Audit, Company, CompanyType, Individual, Industry
+from .models import Company, CompanyType, Individual, Industry
 
 SIREN_LENGTH = 9
 SIRET_LENGTH = 14
@@ -123,14 +123,10 @@ class AuditSaveSerializer(serializers.Serializer):
 class DocumentUploadSerializer(serializers.Serializer):
     """
     Body (multipart/form-data) de l'upload de documents : les fichiers (champ `files`
-    répété une fois par fichier) et l'audit auquel ils sont rattachés.
+    répété une fois par fichier). L'audit est donné par l'URL.
     """
 
     files = serializers.ListField(
         child=serializers.FileField(max_length=255, allow_empty_file=False),
         allow_empty=False,
-    )
-    audit_id = serializers.PrimaryKeyRelatedField(
-        queryset=Audit.objects.all(),
-        error_messages={'does_not_exist': 'Audit introuvable.'},
     )
