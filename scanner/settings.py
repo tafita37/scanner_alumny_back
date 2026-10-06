@@ -164,6 +164,10 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 
+# Fichiers uploadés (documents d'audit), stockés sous un nom unique (uuid)
+UPLOAD_DIR = Path(os.getenv('UPLOAD_DIR', BASE_DIR / 'upload_files'))
+
+
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 

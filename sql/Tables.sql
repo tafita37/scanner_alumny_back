@@ -96,3 +96,15 @@ CREATE TABLE audit(
    PRIMARY KEY(id),
    FOREIGN KEY(company_id) REFERENCES company(id)
 );
+
+CREATE TABLE document(
+   id SERIAL,
+   original_name VARCHAR(255)  NOT NULL,
+   stored_name VARCHAR(255)  NOT NULL,
+   size INTEGER NOT NULL,
+   created_at DATE NOT NULL DEFAULT NOW(),
+   audit_id INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(stored_name),
+   FOREIGN KEY(audit_id) REFERENCES audit(id)
+);
