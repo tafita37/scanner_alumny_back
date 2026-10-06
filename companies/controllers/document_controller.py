@@ -1,3 +1,4 @@
+import mimetypes
 import uuid
 from pathlib import Path
 
@@ -8,8 +9,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ..models import Document
+from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
+
+# Colonnes renvoyées pour un document.
+DOCUMENT_FIELDS = ('id', 'original_name', 'stored_name', 'size', 'mime_type', 'created_at', 'audit_id')
+
+# Type MIME quand ni l'extension ni le navigateur ne permettent de le connaître.
+DEFAULT_MIME_TYPE = 'application/octet-stream'
 
 
 def store_file(uploaded_file):
@@ -26,19 +33,30 @@ def store_file(uploaded_file):
     return stored_name
 
 
+def guess_mime_type(uploaded_file):
+    """
+    Type MIME du fichier : déduit de son extension, sinon celui annoncé par le navigateur,
+    sinon DEFAULT_MIME_TYPE. Le contenu du fichier n'est pas analysé.
+    """
+    mime_type, _ = mimetypes.guess_type(uploaded_file.name)
+    return mime_type or uploaded_file.content_type or DEFAULT_MIME_TYPE
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def upload_documents(request):
+def upload_documents(request, audit_id):
     """
-    Upload de plusieurs documents rattachés à un audit
-    (multipart/form-data : `files` répété une fois par fichier, `audit_id`).
+    Upload de plusieurs documents rattachés à l'audit de l'URL
+    (multipart/form-data : `files` répété une fois par fichier).
     Chaque fichier est stocké sous un nom unique (`stored_name`) ; son nom d'origine
-    et sa taille (octets) sont enregistrés en base.
+    sa taille (octets) et son type MIME sont enregistrés en base.
     Tout est enregistré d'un bloc : en cas d'erreur, aucun fichier n'est gardé.
     """
+    audit = Audit.objects.filter(pk=audit_id).first()
+    if audit is None:
+        return Response({'detail': 'Audit introuvable.'}, status=status.HTTP_404_NOT_FOUND)
     serializer = DocumentUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    audit = serializer.validated_data['audit_id']
     stored_names = []
     try:
         with transaction.atomic():
@@ -50,6 +68,7 @@ def upload_documents(request):
                     original_name=uploaded_file.name,
                     stored_name=stored_name,
                     size=uploaded_file.size,
+                    mime_type=guess_mime_type(uploaded_file),
                     audit=audit,
                 ))
     except Exception:
@@ -61,6 +80,19 @@ def upload_documents(request):
         Document.objects
         .filter(pk__in=[document.pk for document in documents])
         .order_by('id')
-        .values('id', 'original_name', 'stored_name', 'size', 'created_at', 'audit_id')
+        .values(*DOCUMENT_FIELDS)
     )
     return Response(list(rows), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_documents(request, audit_id):
+    """
+    Récupère la liste des documents rattachés à un audit (liste vide s'il n'en a aucun).
+    404 si l'audit n'existe pas.
+    """
+    if not Audit.objects.filter(pk=audit_id).exists():
+        return Response({'detail': 'Audit introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+    documents = Document.objects.filter(audit_id=audit_id).order_by('id').values(*DOCUMENT_FIELDS)
+    return Response(list(documents), status=status.HTTP_200_OK)
