@@ -96,3 +96,21 @@ def get_documents(request, audit_id):
         return Response({'detail': 'Audit introuvable.'}, status=status.HTTP_404_NOT_FOUND)
     documents = Document.objects.filter(audit_id=audit_id).order_by('id').values(*DOCUMENT_FIELDS)
     return Response(list(documents), status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_document(request, pk):
+    """
+    Supprime un document : sa ligne en base, puis son fichier dans UPLOAD_DIR
+    (une fois la suppression validée en base). 404 si le document n'existe pas.
+    """
+    document = Document.objects.filter(pk=pk).first()
+    if document is None:
+        return Response({'detail': 'Document introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+    file_path = Path(settings.UPLOAD_DIR) / document.stored_name
+    with transaction.atomic():
+        document.delete()
+        # Fichier déjà absent du disque : la suppression en base suffit.
+        transaction.on_commit(lambda: file_path.unlink(missing_ok=True))
+    return Response(status=status.HTTP_204_NO_CONTENT)
