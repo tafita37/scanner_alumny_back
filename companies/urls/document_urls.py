@@ -6,4 +6,5 @@ from ..controllers import document_controller
 # (Liste et upload des documents d'un audit : voir audit_urls.py.)
 urlpatterns = [
     path('<int:pk>/delete/', document_controller.delete_document, name='document-delete'),
+    path('<int:pk>/extract/', document_controller.extract_document, name='document-extract'),
 ]

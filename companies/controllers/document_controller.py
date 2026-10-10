@@ -11,12 +11,15 @@ from rest_framework.response import Response
 
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
+from ..services.pdf_extraction import PdfExtractionError, extract_pdf
 
 # Colonnes renvoyées pour un document.
 DOCUMENT_FIELDS = ('id', 'original_name', 'stored_name', 'size', 'mime_type', 'created_at', 'audit_id')
 
 # Type MIME quand ni l'extension ni le navigateur ne permettent de le connaître.
 DEFAULT_MIME_TYPE = 'application/octet-stream'
+
+PDF_MIME_TYPE = 'application/pdf'
 
 
 def store_file(uploaded_file):
@@ -114,3 +117,29 @@ def delete_document(request, pk):
         # Fichier déjà absent du disque : la suppression en base suffit.
         transaction.on_commit(lambda: file_path.unlink(missing_ok=True))
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def extract_document(request, pk):
+    """
+    Extrait le texte (page par page) et les tableaux d'un document PDF déjà uploadé.
+    Les pages sans texte exploitable sont marquées `needs_ocr`.
+    404 si le document ou son fichier n'existe pas, 415 si ce n'est pas un PDF,
+    422 si le PDF est corrompu ou protégé.
+    """
+    document = Document.objects.filter(pk=pk).first()
+    if document is None:
+        return Response({'detail': 'Document introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+    if document.mime_type != PDF_MIME_TYPE:
+        return Response(
+            {'detail': 'Seuls les PDF peuvent être extraits.'},
+            status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
+    file_path = Path(settings.UPLOAD_DIR) / document.stored_name
+    if not file_path.is_file():
+        return Response({'detail': 'Fichier introuvable sur le disque.'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        result = extract_pdf(file_path)
+    except PdfExtractionError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    return Response({'document_id': document.pk, **result}, status=status.HTTP_200_OK)
