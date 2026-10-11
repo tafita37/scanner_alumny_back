@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
+from ..services.ocr_extraction import OcrExtractionError
 from ..services.pdf_extraction import PdfExtractionError, extract_pdf
 
 # Colonnes renvoyées pour un document.
@@ -123,9 +124,9 @@ def delete_document(request, pk):
 def extract_document(request, pk):
     """
     Extrait le texte (page par page) et les tableaux d'un document PDF déjà uploadé.
-    Les pages sans texte exploitable sont marquées `needs_ocr`.
+    Les pages contenant une image passent par l'OCR et sont marquées `needs_ocr`.
     404 si le document ou son fichier n'existe pas, 415 si ce n'est pas un PDF,
-    422 si le PDF est corrompu ou protégé.
+    422 si le PDF est corrompu ou protégé, 500 si l'OCR échoue.
     """
     document = Document.objects.filter(pk=pk).first()
     if document is None:
@@ -142,4 +143,6 @@ def extract_document(request, pk):
         result = extract_pdf(file_path)
     except PdfExtractionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    except OcrExtractionError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response({'document_id': document.pk, **result}, status=status.HTTP_200_OK)

@@ -1,28 +1,42 @@
 """
-Extraction native du texte et des tableaux d'un PDF (étape 1 du pipeline documentaire).
+Extraction du texte et des tableaux d'un PDF (étape 1 du pipeline documentaire).
 
-Chaque page est analysée séparément : une page sans couche de texte exploitable
-(scan, police mal encodée) est marquée `needs_ocr=True` pour être passée à l'OCR ensuite.
+Chaque page est analysée séparément : une page qui contient une image est passée à l'OCR
+(PaddleOCR) et marquée `needs_ocr=True` ; les autres restent sur l'extraction native.
 """
 from pathlib import Path
 
+import numpy as np
 import pdfplumber
 import pymupdf
 
-# Seuils à calibrer sur de vrais devis (Sprint 3).
-MIN_CHARS_PER_PAGE = 100      # en dessous : probablement une page scannée
-MAX_BAD_CHAR_RATIO = 0.10     # au-dessus : texte corrompu (symboles, �)
+from .ocr_extraction import ocr_image
 
-# Zone d'usage privé Unicode : ce que renvoie PyMuPDF quand l'encodage d'une police est cassé.
-PRIVATE_USE_AREA = range(0xE000, 0xF900)
+# Résolution du rendu d'une page avant OCR.
+OCR_DPI = 300
 
 
 class PdfExtractionError(Exception):
     """PDF illisible : corrompu ou protégé par mot de passe."""
 
 
-def extract_text_pymupdf(pdf_path: Path) -> list[str]:
-    """Retourne le texte de chaque page, dans l'ordre de lecture (haut-gauche vers bas-droite)."""
+def page_has_image(page: pymupdf.Page) -> bool:
+    """Vrai si au moins une image est affichée sur la page."""
+    return bool(page.get_image_info())
+
+
+def render_page(page: pymupdf.Page) -> np.ndarray:
+    """Rend la page en image BGR (format attendu par PaddleOCR)."""
+    pixmap = page.get_pixmap(dpi=OCR_DPI, alpha=False)
+    rgb = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(pixmap.height, pixmap.width, 3)
+    return np.ascontiguousarray(rgb[:, :, ::-1])
+
+
+def extract_pages(pdf_path: Path) -> list[dict]:
+    """
+    Retourne, pour chaque page, son texte : par OCR si la page contient une image,
+    sinon natif, dans l'ordre de lecture (haut-gauche vers bas-droite).
+    """
     try:
         doc = pymupdf.open(pdf_path)
     except Exception as exc:
@@ -30,7 +44,12 @@ def extract_text_pymupdf(pdf_path: Path) -> list[str]:
     with doc:
         if doc.needs_pass:
             raise PdfExtractionError('PDF protégé par mot de passe.')
-        return [page.get_text('text', sort=True) for page in doc]
+        pages = []
+        for number, page in enumerate(doc, start=1):
+            needs_ocr = page_has_image(page)
+            text = ocr_image(render_page(page)) if needs_ocr else page.get_text('text', sort=True)
+            pages.append({'number': number, 'text': text, 'needs_ocr': needs_ocr})
+        return pages
 
 
 def extract_tables_pdfplumber(pdf_path: Path, page_numbers: list[int]) -> list[dict]:
@@ -41,40 +60,17 @@ def extract_tables_pdfplumber(pdf_path: Path, page_numbers: list[int]) -> list[d
     tables = []
     with pdfplumber.open(pdf_path) as pdf:
         for number in page_numbers:
-            print(f'Extraction des tableaux de la page {number}...\n')
             for rows in pdf.pages[number - 1].extract_tables():
-                print(rows)
                 tables.append({'page': number, 'rows': rows})
     return tables
 
 
-def bad_char_ratio(text: str) -> float:
-    """Part de caractères suspects : remplacement Unicode, contrôle, zone d'usage privé."""
-    if not text:
-        return 1.0
-    bad = sum(
-        1 for c in text
-        if c == '�'
-        or (ord(c) < 32 and c not in '\n\r\t')
-        or ord(c) in PRIVATE_USE_AREA
-    )
-    return bad / len(text)
-
-
-def page_needs_ocr(text: str) -> bool:
-    """Décide si le texte natif d'une page est inutilisable et qu'il faut passer à l'OCR."""
-    return len(text.strip()) < MIN_CHARS_PER_PAGE or bad_char_ratio(text) > MAX_BAD_CHAR_RATIO
-
-
 def extract_pdf(pdf_path: Path) -> dict:
     """
-    Extrait le texte de chaque page et les tableaux des pages au texte natif exploitable.
-    Lève PdfExtractionError si le PDF est corrompu ou protégé.
+    Extrait le texte de chaque page (natif ou OCR) et les tableaux des pages sans image.
+    Lève PdfExtractionError si le PDF est corrompu ou protégé, OcrExtractionError si l'OCR échoue.
     """
-    pages = [
-        {'number': number, 'text': text, 'needs_ocr': page_needs_ocr(text)}
-        for number, text in enumerate(extract_text_pymupdf(pdf_path), start=1)
-    ]
+    pages = extract_pages(pdf_path)
     native_pages = [page['number'] for page in pages if not page['needs_ocr']]
     try:
         tables = extract_tables_pdfplumber(pdf_path, native_pages) if native_pages else []
