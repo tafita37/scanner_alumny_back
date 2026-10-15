@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
+from ..services.anonymization import find_personal_data
 from ..services.ocr_extraction import OcrExtractionError
 from ..services.pdf_extraction import PdfExtractionError, extract_pdf
 
@@ -89,6 +90,17 @@ def upload_documents(request, audit_id):
     return Response(list(rows), status=status.HTTP_201_CREATED)
 
 
+def print_personal_data(document, pages):
+    """
+    Affiche dans la console les données personnelles détectées sur chaque page extraite.
+    Étape de mise au point de l'anonymisation : rien n'est renvoyé dans la réponse API.
+    """
+    print(f'--- Données personnelles du document {document.pk} ({document.original_name}) ---')
+    for page in pages:
+        for entity in find_personal_data(page['text']):
+            print(f"page {page['number']} | {entity['entity_type']:<14} | {entity['score']:.2f} | {entity['value']!r}")
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_documents(request, audit_id):
@@ -145,4 +157,5 @@ def extract_document(request, pk):
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
     except OcrExtractionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    print_personal_data(document, result['pages'])
     return Response({'document_id': document.pk, **result}, status=status.HTTP_200_OK)
