@@ -11,7 +11,7 @@ from rest_framework.response import Response
 
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
-from ..services.anonymization import find_personal_data
+from ..services.anonymization import anonymize_pages
 from ..services.ocr_extraction import OcrExtractionError
 from ..services.pdf_extraction import PdfExtractionError, extract_pdf
 
@@ -90,15 +90,19 @@ def upload_documents(request, audit_id):
     return Response(list(rows), status=status.HTTP_201_CREATED)
 
 
-def print_personal_data(document, pages):
+def print_anonymization(document, pages):
     """
-    Affiche dans la console les données personnelles détectées sur chaque page extraite.
-    Étape de mise au point de l'anonymisation : rien n'est renvoyé dans la réponse API.
+    Affiche dans la console la correspondance jeton -> donnée personnelle du document, puis le
+    texte anonymisé de chaque page. Étape de mise au point de l'anonymisation : rien n'est
+    renvoyé dans la réponse API.
     """
-    print(f'--- Données personnelles du document {document.pk} ({document.original_name}) ---')
-    for page in pages:
-        for entity in find_personal_data(page['text']):
-            print(f"page {page['number']} | {entity['entity_type']:<14} | {entity['score']:.2f} | {entity['value']!r}")
+    anonymized_pages, mapping = anonymize_pages(pages)
+    print(f'--- Anonymisation du document {document.pk} ({document.original_name}) ---')
+    for token, value in mapping.values.items():
+        print(f'{token:<20} = {value!r}')
+    for page in anonymized_pages:
+        print(f"--- page {page['number']} ---")
+        print(page['text'])
 
 
 @api_view(['GET'])
@@ -157,5 +161,11 @@ def extract_document(request, pk):
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
     except OcrExtractionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    print_personal_data(document, result['pages'])
+    # print_anonymization(document, result['pages'])
+    # TEMPORAIRE (mise au point) : bloc de coordonnées sur plusieurs lignes, comme en sortie d'OCR,
+    # cas où spaCy peut perdre le prénom. À retirer une fois le cas vérifié.
+    test_pages, _ = anonymize_pages([
+        {'number': 0, 'text': 'Sophie Bernard\nTél : 06 12 34 56 78\nsophie.bernard@example.com'},
+    ])
+    print(test_pages[0])
     return Response({'document_id': document.pk, **result}, status=status.HTTP_200_OK)
