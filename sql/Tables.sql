@@ -109,3 +109,16 @@ CREATE TABLE document(
    UNIQUE(stored_name),
    FOREIGN KEY(audit_id) REFERENCES audit(id)
 );
+
+CREATE TABLE extraction(
+   id SERIAL,
+   extraction_date DATE NOT NULL DEFAULT NOW(),
+   status VARCHAR(20)  NOT NULL CHECK (status IN ('en_cours', 'ok', 'a_verifier')),
+   json_extraction TEXT,
+   json_variables TEXT,
+   errors TEXT,
+   attempts INTEGER NOT NULL DEFAULT 0,
+   document_id INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(document_id) REFERENCES document(id)
+);
