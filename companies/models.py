@@ -9,7 +9,8 @@ from .metier.city_postal_code import CityPostalCode
 from .metier.company import Company
 from .metier.company_type import CompanyType
 from .metier.document import Document
+from .metier.extraction import Extraction
 from .metier.individual import Individual
 from .metier.industry import Industry
 
-__all__ = ['Audit', 'CeoInfo', 'City', 'CityPostalCode', 'Company', 'CompanyType', 'Document', 'Individual', 'Industry']
+__all__ = ['Audit', 'CeoInfo', 'City', 'CityPostalCode', 'Company', 'CompanyType', 'Document', 'Extraction', 'Individual', 'Industry']

@@ -1,0 +1,124 @@
+CREATE TABLE users(
+   id SERIAL,
+   name VARCHAR(50)  NOT NULL,
+   first_name VARCHAR(50)  NOT NULL,
+   email VARCHAR(50)  NOT NULL,
+   password TEXT NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(email)
+);
+
+CREATE TABLE company_type(
+   id SERIAL,
+   label VARCHAR(200)  NOT NULL,
+   label_level_1 VARCHAR(200)  NOT NULL,
+   label_level_2 VARCHAR(200)  NOT NULL,
+   code VARCHAR(4)  NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(label),
+   UNIQUE(code)
+);
+
+CREATE TABLE city(
+   id SERIAL,
+   name VARCHAR(50)  NOT NULL,
+   code_insee VARCHAR(5)  NOT NULL,
+   department_code VARCHAR(3)  NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(code_insee)
+);
+
+CREATE TABLE industry(
+   id SERIAL,
+   name VARCHAR(50)  NOT NULL,
+   description TEXT NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(name)
+);
+
+CREATE TABLE city_postal_code(
+   id SERIAL,
+   postal_code VARCHAR(5)  NOT NULL,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES city(id)
+);
+
+CREATE TABLE individual(
+   id SERIAL,
+   name VARCHAR(100)  NOT NULL,
+   first_name VARCHAR(100)  NOT NULL,
+   email VARCHAR(50)  NOT NULL,
+   phone_number VARCHAR(50)  NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(email),
+   UNIQUE(phone_number)
+);
+
+CREATE TABLE ceo_info(
+   id SERIAL,
+   email VARCHAR(50)  NOT NULL,
+   phone_number VARCHAR(50)  NOT NULL,
+   job_title VARCHAR(50)  NOT NULL,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES individual(id)
+);
+
+CREATE TABLE company(
+   id SERIAL,
+   siren_number VARCHAR(9)  NOT NULL,
+   company_name VARCHAR(255)  NOT NULL,
+   naf_code VARCHAR(6)  NOT NULL,
+   creation_date DATE NOT NULL,
+   id_1 INTEGER NOT NULL,
+   id_2 INTEGER NOT NULL,
+   id_3 INTEGER NOT NULL,
+   id_4 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(siren_number),
+   FOREIGN KEY(id_1) REFERENCES industry(id),
+   FOREIGN KEY(id_2) REFERENCES city(id),
+   FOREIGN KEY(id_3) REFERENCES ceo_info(id),
+   FOREIGN KEY(id_4) REFERENCES company_type(id)
+);
+
+CREATE TABLE audit(
+   id SERIAL,
+   siret_number VARCHAR(14)  NOT NULL,
+   head_count INTEGER NOT NULL,
+   revenue DOUBLE PRECISION NOT NULL,
+   profit DOUBLE PRECISION NOT NULL,
+   publciation_year INTEGER NOT NULL,
+   remaining_step INTEGER NOT NULL,
+   audit_date DATE NOT NULL,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES company(id)
+);
+
+CREATE TABLE document(
+   id SERIAL,
+   original_name VARCHAR(255)  NOT NULL,
+   stored_name VARCHAR(255)  NOT NULL,
+   size INTEGER NOT NULL,
+   mime_type VARCHAR(255)  NOT NULL,
+   created_at DATE NOT NULL,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(stored_name),
+   FOREIGN KEY(id_1) REFERENCES audit(id)
+);
+
+CREATE TABLE extraction(
+   id SERIAL,
+   extraction_date DATE NOT NULL,
+   status VARCHAR(20)  NOT NULL,
+   json_extraction TEXT,
+   json_variables TEXT,
+   errors TEXT,
+   attempts INTEGER NOT NULL,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES document(id)
+);

@@ -1,3 +1,4 @@
+import json
 import mimetypes
 import uuid
 from pathlib import Path
@@ -9,11 +10,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ..metier.extraction import StatutExtraction
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
 from ..services.anonymization import anonymize_pages
 from ..services.ocr_extraction import OcrExtractionError
+from ..services.indicators import compute_indicators
 from ..services.pdf_extraction import PdfExtractionError, extract_pdf
+from ..services.structuring import StructuringError, structure_document
 
 # Colonnes renvoyées pour un document.
 DOCUMENT_FIELDS = ('id', 'original_name', 'stored_name', 'size', 'mime_type', 'created_at', 'audit_id')
@@ -105,6 +109,20 @@ def print_anonymization(document, pages):
         print(page['text'])
 
 
+def extraction_payload(extraction):
+    """Extraction renvoyée par l'API, avec ses colonnes JSON décodées."""
+    return {
+        'id': extraction.pk,
+        'document_id': extraction.document_id,
+        'extraction_date': extraction.extraction_date,
+        'status': extraction.status,
+        'attempts': extraction.attempts,
+        'errors': json.loads(extraction.errors) if extraction.errors else [],
+        'extraction': json.loads(extraction.json_extraction) if extraction.json_extraction else None,
+        'variables': json.loads(extraction.json_variables) if extraction.json_variables else None,
+    }
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_documents(request, audit_id):
@@ -122,7 +140,7 @@ def get_documents(request, audit_id):
 @permission_classes([IsAuthenticated])
 def delete_document(request, pk):
     """
-    Supprime un document : sa ligne en base, puis son fichier dans UPLOAD_DIR
+    Supprime un document : ses extractions et sa ligne en base, puis son fichier dans UPLOAD_DIR
     (une fois la suppression validée en base). 404 si le document n'existe pas.
     """
     document = Document.objects.filter(pk=pk).first()
@@ -130,6 +148,8 @@ def delete_document(request, pk):
         return Response({'detail': 'Document introuvable.'}, status=status.HTTP_404_NOT_FOUND)
     file_path = Path(settings.UPLOAD_DIR) / document.stored_name
     with transaction.atomic():
+        # Extraction.document est en PROTECT : les extractions doivent partir avant le document.
+        document.extractions.all().delete()
         document.delete()
         # Fichier déjà absent du disque : la suppression en base suffit.
         transaction.on_commit(lambda: file_path.unlink(missing_ok=True))
@@ -139,14 +159,28 @@ def delete_document(request, pk):
 @permission_classes([IsAuthenticated])
 def extract_document(request, pk):
     """
-    Extrait le texte (page par page) et les tableaux d'un document PDF déjà uploadé.
-    Les pages contenant une image passent par l'OCR et sont marquées `needs_ocr`.
+    Extrait le texte d'un document PDF déjà uploadé (OCR pour les pages contenant une image),
+    l'anonymise puis le fait structurer par l'agent IA : document commercial (lu selon le secteur
+    de l'entreprise) ou comptes annuels, type reconnu par l'agent.
+    Renvoie l'extraction enregistrée : statut (`ok` ou `a_verifier`), nombre de tentatives,
+    erreurs, données lues par l'agent et variables calculées, ainsi que les `indicateurs` de
+    l'audit recalculés avec tous ses documents extraits.
+    Si la dernière extraction du document est `ok`, elle est renvoyée telle quelle (ni PDF ni LLM) ;
+    `?force=true` relance l'extraction. Sinon (aucune, `a_verifier`, `en_cours`), une nouvelle
+    extraction est créée.
     404 si le document ou son fichier n'existe pas, 415 si ce n'est pas un PDF,
-    422 si le PDF est corrompu ou protégé, 500 si l'OCR échoue.
+    422 si le PDF est corrompu ou protégé ou si le secteur n'est pas pris en charge,
+    500 si l'OCR échoue.
     """
     document = Document.objects.filter(pk=pk).first()
     if document is None:
         return Response({'detail': 'Document introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+    latest = document.extractions.order_by('-id').first()
+    if latest is not None and latest.status == StatutExtraction.OK and request.query_params.get('force') != 'true':
+        return Response(
+            {**extraction_payload(latest), 'indicateurs': compute_indicators(document.audit)},
+            status=status.HTTP_200_OK,
+        )
     if document.mime_type != PDF_MIME_TYPE:
         return Response(
             {'detail': 'Seuls les PDF peuvent être extraits.'},
@@ -162,10 +196,11 @@ def extract_document(request, pk):
     except OcrExtractionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     # print_anonymization(document, result['pages'])
-    # TEMPORAIRE (mise au point) : bloc de coordonnées sur plusieurs lignes, comme en sortie d'OCR,
-    # cas où spaCy peut perdre le prénom. À retirer une fois le cas vérifié.
-    test_pages, _ = anonymize_pages([
-        {'number': 0, 'text': 'Sophie Bernard\nTél : 06 12 34 56 78\nsophie.bernard@example.com'},
-    ])
-    print(test_pages[0])
-    return Response({'document_id': document.pk, **result}, status=status.HTTP_200_OK)
+    try:
+        extraction = structure_document(document, result['pages'])
+    except StructuringError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    return Response(
+        {**extraction_payload(extraction), 'indicateurs': compute_indicators(document.audit)},
+        status=status.HTTP_200_OK,
+    )
