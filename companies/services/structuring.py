@@ -13,7 +13,7 @@ from structuration.schemas import SECTEURS
 
 from ..models import Extraction
 from ..metier.extraction import StatutExtraction
-from .anonymization import anonymize_pages
+from .anonymization import anonymize_pages, deanonymize
 
 
 class StructuringError(Exception):
@@ -34,8 +34,9 @@ def structure_document(document, pages: list[dict]) -> Extraction:
     Anonymise les pages extraites du document et les fait structurer par l'agent, qui reconnaît
     lui-même le type du document : document commercial (lu selon le secteur de l'entreprise de
     l'audit) ou comptes annuels. Le résultat est enregistré dans une nouvelle `Extraction`.
-    La correspondance jeton -> donnée personnelle reste en mémoire : le JSON enregistré garde
-    les jetons (<PERSON_1>...).
+    Le LLM ne reçoit que des jetons (<PERSON_1>...) ; la correspondance jeton -> donnée
+    personnelle reste en mémoire et sert à remettre les vraies valeurs dans le résultat
+    avant de l'enregistrer.
     Lève StructuringError si le secteur de l'entreprise n'est pas pris en charge par l'agent.
     """
     sector = document.audit.company.industry.name.upper()
@@ -43,7 +44,7 @@ def structure_document(document, pages: list[dict]) -> Extraction:
         raise StructuringError(
             f'Secteur « {document.audit.company.industry.name} » non pris en charge par l\'agent.'
         )
-    anonymized_pages, _ = anonymize_pages(pages)
+    anonymized_pages, mapping = anonymize_pages(pages)
     # Enregistrée avant l'appel au LLM (plusieurs secondes) : statut « en cours » visible en base.
     extraction = Extraction.objects.create(document=document)
     try:
@@ -56,9 +57,11 @@ def structure_document(document, pages: list[dict]) -> Extraction:
         raise
     extraction.status = result['statut']
     extraction.attempts = result['tentatives']
-    extraction.errors = to_json(result['erreurs'])
+    extraction.errors = to_json(deanonymize(result['erreurs'], mapping))
     # Échec après 3 essais : on garde la dernière réponse du LLM pour la vérification manuelle.
-    extraction.json_extraction = to_json(result['extraction'] or result['extraction_brute'])
-    extraction.json_variables = to_json(result['variables'])
+    extraction.json_extraction = to_json(
+        deanonymize(result['extraction'] or result['extraction_brute'], mapping)
+    )
+    extraction.json_variables = to_json(deanonymize(result['variables'], mapping))
     extraction.save()
     return extraction

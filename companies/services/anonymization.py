@@ -272,3 +272,17 @@ def anonymize_pages(pages: list[dict]) -> tuple[list[dict], PseudonymMapping]:
         {**page, 'text': propagate_tokens(page['text'], mapping)} for page in anonymized_pages
     ]
     return anonymized_pages, mapping
+
+
+def deanonymize(value, mapping: PseudonymMapping):
+    """
+    Remet les données personnelles à la place des jetons dans une valeur JSON (texte, liste,
+    dictionnaire), par exemple la réponse du LLM. Un jeton inconnu de `mapping` reste tel quel.
+    """
+    if isinstance(value, str):
+        return TOKEN_PATTERN.sub(lambda match: mapping.values.get(match.group(0), match.group(0)), value)
+    if isinstance(value, list):
+        return [deanonymize(item, mapping) for item in value]
+    if isinstance(value, dict):
+        return {key: deanonymize(item, mapping) for key, item in value.items()}
+    return value
