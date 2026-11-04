@@ -23,6 +23,8 @@ class Strict(BaseModel):
 class Partie(Strict):
     nom: str | None = Field(description="Nom ou raison sociale, recopié tel quel, ou null.")
     adresse: str | None = Field(description="Adresse complète sur une ligne, ou null.")
+    telephone: str | None = Field(description="Numéro de téléphone recopié tel quel, ou null.")
+    email: str | None = Field(description="Adresse e-mail recopiée telle quelle, ou null.")
     siret: str | None = Field(
         description="SIRET (14 chiffres) ou à défaut SIREN (9 chiffres), recopié tel quel, ou null."
     )

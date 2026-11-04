@@ -14,7 +14,7 @@ from ..metier.extraction import StatutExtraction
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
 from ..services.anonymization import anonymize_pages
-from ..services.ocr_extraction import OcrExtractionError
+from ..services.docling_conversion import DocumentConversionError
 from ..services.indicators import compute_indicators
 from ..services.pdf_extraction import PdfExtractionError, extract_pdf
 from ..services.structuring import StructuringError, structure_document
@@ -159,18 +159,20 @@ def delete_document(request, pk):
 @permission_classes([IsAuthenticated])
 def extract_document(request, pk):
     """
-    Extrait le texte d'un document PDF déjà uploadé (OCR pour les pages contenant une image),
+    Extrait le texte d'un document PDF déjà uploadé (Docling, OCR des seules zones scannées),
     l'anonymise puis le fait structurer par l'agent IA : document commercial (lu selon le secteur
     de l'entreprise) ou comptes annuels, type reconnu par l'agent.
     Renvoie l'extraction enregistrée : statut (`ok` ou `a_verifier`), nombre de tentatives,
     erreurs, données lues par l'agent et variables calculées, ainsi que les `indicateurs` de
     l'audit recalculés avec tous ses documents extraits.
+    Si Docling n'a pas pu lire certaines pages (conversion partielle), elles sont signalées en tête
+    des `errors` et l'extraction est `a_verifier`.
     Si la dernière extraction du document est `ok`, elle est renvoyée telle quelle (ni PDF ni LLM) ;
     `?force=true` relance l'extraction. Sinon (aucune, `a_verifier`, `en_cours`), une nouvelle
     extraction est créée.
     404 si le document ou son fichier n'existe pas, 415 si ce n'est pas un PDF,
     422 si le PDF est corrompu ou protégé ou si le secteur n'est pas pris en charge,
-    500 si l'OCR échoue.
+    500 si la conversion par Docling échoue.
     """
     document = Document.objects.filter(pk=pk).first()
     if document is None:
@@ -193,11 +195,11 @@ def extract_document(request, pk):
         result = extract_pdf(file_path)
     except PdfExtractionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-    except OcrExtractionError as exc:
+    except DocumentConversionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     # print_anonymization(document, result['pages'])
     try:
-        extraction = structure_document(document, result['pages'])
+        extraction = structure_document(document, result['pages'], result['errors'])
     except StructuringError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
     return Response(

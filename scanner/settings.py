@@ -168,6 +168,10 @@ STATIC_URL = 'static/'
 # Fichiers uploadés (documents d'audit), stockés sous un nom unique (uuid)
 UPLOAD_DIR = Path(os.getenv('UPLOAD_DIR', BASE_DIR / 'upload_files'))
 
+# Modèles de Docling téléchargés à l'avance (docling-tools models download). Non renseigné :
+# Docling les télécharge lui-même à la première extraction.
+DOCLING_ARTIFACTS_PATH = os.getenv('DOCLING_ARTIFACTS_PATH')
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration

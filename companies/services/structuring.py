@@ -3,8 +3,8 @@ Structuration d'un document par l'agent IA (app `structuration`) : le texte extr
 anonymisé, envoyé au LLM avec le secteur de l'entreprise, puis le résultat (données lues,
 variables calculées, erreurs) est enregistré dans une `Extraction`.
 
-Seul le texte des pages est envoyé : les tableaux de pdfplumber ne passent pas par
-l'anonymisation, et leur contenu figure déjà dans le texte de la page.
+Le texte des pages est du Markdown produit par Docling : les tableaux y figurent, et passent
+donc par l'anonymisation comme le reste du texte.
 """
 import json
 
@@ -29,7 +29,7 @@ def to_json(value) -> str | None:
     return json.dumps(value, ensure_ascii=False) if value is not None else None
 
 
-def structure_document(document, pages: list[dict]) -> Extraction:
+def structure_document(document, pages: list[dict], conversion_errors: list[str]) -> Extraction:
     """
     Anonymise les pages extraites du document et les fait structurer par l'agent, qui reconnaît
     lui-même le type du document : document commercial (lu selon le secteur de l'entreprise de
@@ -37,6 +37,9 @@ def structure_document(document, pages: list[dict]) -> Extraction:
     Le LLM ne reçoit que des jetons (<PERSON_1>...) ; la correspondance jeton -> donnée
     personnelle reste en mémoire et sert à remettre les vraies valeurs dans le résultat
     avant de l'enregistrer.
+    `conversion_errors` (pages que Docling n'a pas pu lire) est placé en tête des erreurs, et
+    l'extraction passe alors « à vérifier » : une donnée de ces pages peut manquer ou être
+    fausse sans que l'agent le sache.
     Lève StructuringError si le secteur de l'entreprise n'est pas pris en charge par l'agent.
     """
     sector = document.audit.company.industry.name.upper()
@@ -52,12 +55,13 @@ def structure_document(document, pages: list[dict]) -> Extraction:
     except Exception as exc:
         # Erreur inattendue : l'extraction ne doit pas rester « en cours ».
         extraction.status = StatutExtraction.A_VERIFIER
-        extraction.errors = to_json([f'Erreur interne : {type(exc).__name__}: {exc}'])
+        extraction.errors = to_json([*conversion_errors, f'Erreur interne : {type(exc).__name__}: {exc}'])
         extraction.save()
         raise
-    extraction.status = result['statut']
+    # Conversion partielle : même si l'agent n'a rien relevé, un humain doit vérifier.
+    extraction.status = StatutExtraction.A_VERIFIER if conversion_errors else result['statut']
     extraction.attempts = result['tentatives']
-    extraction.errors = to_json(deanonymize(result['erreurs'], mapping))
+    extraction.errors = to_json([*conversion_errors, *deanonymize(result['erreurs'], mapping)])
     # Échec après 3 essais : on garde la dernière réponse du LLM pour la vérification manuelle.
     extraction.json_extraction = to_json(
         deanonymize(result['extraction'] or result['extraction_brute'], mapping)
