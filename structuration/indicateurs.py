@@ -4,10 +4,17 @@ Seuls les indicateurs dont la formule est définie sont calculés. CHr, Emo, co�
 attendent le questionnaire et la définition des termes manquants.
 """
 
-from .calculs import CALCULS_PAR_TYPE
-from .schemas import SCHEMAS_PAR_TYPE, SECTEURS, ExtractionIndustrie
+from .calculs import CALCULS_PAR_TYPE, delai_reglement, sens_document
+from .schemas import SCHEMAS_PAR_TYPE, SECTEURS, DocumentCommercial, ExtractionIndustrie
 
 TYPES_COMPTES_ANNUELS = ("comptes_annuels", "liasse_fiscale")
+
+# Variables tirées de l'en-tête d'un seul document : sans objet pour le document fusionné
+VARIABLES_PROPRES_AU_DOCUMENT = (
+    "date_document", "client", "duree_execution_jours", "retenue_garantie_pourcentage", "autoliquidation_tva",
+    "avancement_pourcentage", "montant_situation_ht", "duree_travaux_jours", "nb_echeances", "nb_participants",
+    "prix_par_participant", "frais_port_ht", "delai_livraison_jours",
+)
 
 
 def _moyenne(valeurs) -> float | None:
@@ -24,16 +31,30 @@ def _cle(texte: str | None) -> str | None:
 # Documents commerciaux
 # --------------------------------------------------------------------------- #
 
-def _document_fusionne(secteur: str, extractions: list[dict]):
-    """Les lignes de tous les documents commerciaux réunies dans un seul document du secteur."""
+def _vide(valeur):
+    """Même structure, sans contenu : sous-objets vidés récursivement, listes vides, booléens faux."""
+    if isinstance(valeur, dict):
+        return {cle: _vide(v) for cle, v in valeur.items()}
+    if isinstance(valeur, list):
+        return []
+    if isinstance(valeur, bool):
+        return False
+    return None
+
+
+def _document_fusionne(secteur: str, documents: list[DocumentCommercial]):
+    """
+    Les lignes de tous les documents commerciaux réunies dans un seul document du secteur.
+    L'en-tête, le pied et les conditions propres à chaque document sont vidés.
+    """
+    contenu = _vide(documents[0].model_dump())
     if secteur == "INDUSTRIE":
-        contenu = {"type_document": "bon_de_commande",
-                   "lignes_commande": [l for e in extractions for l in e["lignes_commande"]],
-                   "fiches_prix_revient": [f for e in extractions for f in e["fiches_prix_revient"]]}
+        contenu |= {"type_document": "bon_de_commande",
+                    "lignes_commande": [l.model_dump() for d in documents for l in d.lignes_commande],
+                    "fiches_prix_revient": [f.model_dump() for d in documents for f in d.fiches_prix_revient]}
     else:
-        contenu = {"type_document": "devis", "lignes": [l for e in extractions for l in e["lignes"]]}
-    pied = {"total_ht": None, "total_ttc": None, "acompte_pourcentage": None, "delai_reglement_jours": None}
-    return SCHEMAS_PAR_TYPE[secteur].model_validate(contenu | pied)
+        contenu |= {"type_document": "devis", "lignes": [l.model_dump() for d in documents for l in d.lignes]}
+    return SCHEMAS_PAR_TYPE[secteur].model_validate(contenu)
 
 
 def _marges_croisees(e: ExtractionIndustrie) -> list[dict]:
@@ -66,16 +87,24 @@ def _marges_croisees(e: ExtractionIndustrie) -> list[dict]:
     return marges
 
 
-def _commercial(secteur: str, extractions: list[dict]) -> dict | None:
+def _commercial(secteur: str, extractions: list[dict], siren: str | None) -> dict | None:
     if secteur not in SECTEURS or not extractions:
         return None
-    fusion = _document_fusionne(secteur, extractions)
-    variables = CALCULS_PAR_TYPE[secteur](fusion)
+    documents = [SCHEMAS_PAR_TYPE[secteur].model_validate(e) for e in extractions]
+    # Documents reçus d'un fournisseur : ni prix de vente ni conditions accordées aux clients.
+    # Sens inconnu (aucun SIREN reconnu) : le document est supposé émis par l'entreprise.
+    ventes = [d for d in documents if sens_document(d, siren) != "achat"]
+    if not ventes:
+        return {"documents_achat_exclus": len(documents)}
+    fusion = _document_fusionne(secteur, ventes)
+    variables = {cle: valeur for cle, valeur in CALCULS_PAR_TYPE[secteur](fusion).items()
+                 if cle not in VARIABLES_PROPRES_AU_DOCUMENT}
     # Moyenne simple sur les documents qui indiquent la condition
     variables["conditions_de_paiement"] = {
-        "acompte_pourcentage_moyen": _moyenne(e["acompte_pourcentage"] for e in extractions),
-        "delai_reglement_jours_moyen": _moyenne(e["delai_reglement_jours"] for e in extractions),
+        "acompte_pourcentage_moyen": _moyenne(d.conditions.acompte_pourcentage for d in ventes),
+        "delai_reglement_jours_moyen": _moyenne(delai_reglement(d) for d in ventes),
     }
+    variables["documents_achat_exclus"] = len(documents) - len(ventes)
     if secteur == "INDUSTRIE":
         variables["marges_sur_couts_variables"] = _marges_croisees(fusion)
     return variables
@@ -108,7 +137,7 @@ def calculer_indicateurs(secteur: str, extractions: list[tuple[dict, dict]], api
     """
     secteur : "BTP", "SERVICES" ou "INDUSTRIE".
     extractions : (extraction, variables) de chaque document retenu, du plus ancien au plus récent.
-    api : données publiées de l'audit (chiffre_affaires, resultat_net, effectif, annee).
+    api : données de l'audit (chiffre_affaires, resultat_net, effectif, annee publiés ; siren de l'entreprise).
     """
     commerciales = [x for x, _ in extractions if x["type_document"] not in TYPES_COMPTES_ANNUELS]
     comptes = [v for x, v in extractions if x["type_document"] in TYPES_COMPTES_ANNUELS]
@@ -118,6 +147,6 @@ def calculer_indicateurs(secteur: str, extractions: list[tuple[dict, dict]], api
         "chiffre_affaires": _valeur(retenus, "chiffre_affaires", api["chiffre_affaires"]),
         "resultat_net": _valeur(retenus, "resultat_net", api["resultat_net"]),
         "effectif": _valeur(retenus, "effectif_moyen", api["effectif"]),
-        "documents_commerciaux": _commercial(secteur, commerciales),
+        "documents_commerciaux": _commercial(secteur, commerciales, api["siren"]),
         "comptes_annuels": retenus,
     }

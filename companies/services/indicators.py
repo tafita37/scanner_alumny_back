@@ -29,6 +29,7 @@ def compute_indicators(audit) -> dict:
             'resultat_net': audit.profit,
             'effectif': audit.head_count,
             'annee': audit.publication_year,
+            'siren': audit.company.siren_number,
         },
     )
     return {

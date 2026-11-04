@@ -5,12 +5,13 @@ personnelles d'un texte en français.
 Le modèle spaCy `fr_core_news_lg` est lourd à charger : les moteurs sont instanciés une seule
 fois, au premier appel, puis réutilisés.
 """
+import copy
 import re
 import unicodedata
 from functools import lru_cache, partial
 
 import phonenumbers
-from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngine, NlpEngineProvider
 from presidio_analyzer.predefined_recognizers import (
     EmailRecognizer,
@@ -69,9 +70,28 @@ def has_proper_noun(span: Span | None) -> bool:
         return True
     return any(token.pos_ in PROPER_NOUN_TAGS for token in span)
 
+def split_lines(result: RecognizerResult, text: str) -> list[RecognizerResult]:
+    """
+    Découpe une entité en un morceau par ligne, sans les espaces autour : une entité ne déborde
+    jamais sur la ligne suivante. Docling sépare les blocs de la page par une ligne vide, et spaCy
+    prend sinon « Élodie Guerin\\n\\nTél » pour un seul nom.
+    """
+    pieces = []
+    for match in re.finditer(r'[^\n]+', text[result.start:result.end]):
+        line = match.group()
+        start = result.start + match.start() + len(line) - len(line.lstrip())
+        end = result.start + match.start() + len(line.rstrip())
+        if start < end:
+            piece = copy.copy(result)
+            piece.start, piece.end = start, end
+            pieces.append(piece)
+    return pieces
+
+
 class FrSpacyRecognizer(SpacyRecognizer):
     """
-    SpacyRecognizer qui rejette les entités composées uniquement de mots ordinaires.
+    SpacyRecognizer qui découpe les entités ligne par ligne, puis rejette les morceaux composés
+    uniquement de mots ordinaires.
 
     Sur le texte issu de l'OCR (une ligne par zone de texte, sans phrase autour), la NER de
     spaCy prend souvent un mot isolé avec majuscule pour une personne (ex. l'en-tête de colonne
@@ -84,8 +104,8 @@ class FrSpacyRecognizer(SpacyRecognizer):
             return results
         doc = nlp_artifacts.tokens
         return [
-            result for result in results
-            if has_proper_noun(doc.char_span(result.start, result.end))
+            piece for result in results for piece in split_lines(result, text)
+            if has_proper_noun(doc.char_span(piece.start, piece.end, alignment_mode='contract'))
         ]
 
 
@@ -261,7 +281,7 @@ def propagate_tokens(text: str, mapping: PseudonymMapping) -> str:
 
 def anonymize_pages(pages: list[dict]) -> tuple[list[dict], PseudonymMapping]:
     """
-    Anonymise le texte de chaque page extraite (même format que extract_pages) avec une
+    Anonymise le texte de chaque page extraite (même format que extract_pdf) avec une
     correspondance commune à tout le document. Renvoie les pages anonymisées et la correspondance.
     """
     mapping = PseudonymMapping()
@@ -272,3 +292,17 @@ def anonymize_pages(pages: list[dict]) -> tuple[list[dict], PseudonymMapping]:
         {**page, 'text': propagate_tokens(page['text'], mapping)} for page in anonymized_pages
     ]
     return anonymized_pages, mapping
+
+
+def deanonymize(value, mapping: PseudonymMapping):
+    """
+    Remet les données personnelles à la place des jetons dans une valeur JSON (texte, liste,
+    dictionnaire), par exemple la réponse du LLM. Un jeton inconnu de `mapping` reste tel quel.
+    """
+    if isinstance(value, str):
+        return TOKEN_PATTERN.sub(lambda match: mapping.values.get(match.group(0), match.group(0)), value)
+    if isinstance(value, list):
+        return [deanonymize(item, mapping) for item in value]
+    if isinstance(value, dict):
+        return {key: deanonymize(item, mapping) for key, item in value.items()}
+    return value
