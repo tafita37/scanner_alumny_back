@@ -4,16 +4,15 @@ Seuls les indicateurs dont la formule est définie sont calculés. CHr, Emo, co�
 attendent le questionnaire et la définition des termes manquants.
 """
 
-from .calculs import CALCULS_PAR_TYPE, delai_reglement, sens_document
+from .calculs import CALCULS_PAR_TYPE, _somme, delai_reglement, sens_document
 from .schemas import SCHEMAS_PAR_TYPE, SECTEURS, DocumentCommercial, ExtractionIndustrie
 
 TYPES_COMPTES_ANNUELS = ("comptes_annuels", "liasse_fiscale")
 
 # Variables tirées de l'en-tête d'un seul document : sans objet pour le document fusionné
 VARIABLES_PROPRES_AU_DOCUMENT = (
-    "date_document", "client", "duree_execution_jours", "retenue_garantie_pourcentage", "autoliquidation_tva",
-    "avancement_pourcentage", "montant_situation_ht", "duree_travaux_jours", "nb_echeances", "nb_participants",
-    "prix_par_participant", "frais_port_ht", "delai_livraison_jours",
+    "delai_reglement_jours", "avancement_pourcentage", "montant_situation_ht", "duree_travaux_jours",
+    "nb_echeances", "nb_participants", "prix_par_participant",
 )
 
 
@@ -106,6 +105,8 @@ def _commercial(secteur: str, extractions: list[dict], siren: str | None) -> dic
     }
     variables["documents_achat_exclus"] = len(documents) - len(ventes)
     if secteur == "INDUSTRIE":
+        # Somme des lignes de tous les bons de commande : base de l'extrapolation
+        variables["chiffre_affaires_commande"] = _somme(l.total_ht for l in fusion.lignes_commande)
         variables["marges_sur_couts_variables"] = _marges_croisees(fusion)
     return variables
 

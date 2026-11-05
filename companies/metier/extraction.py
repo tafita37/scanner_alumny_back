@@ -14,7 +14,8 @@ class Extraction(models.Model):
     """
     Tentative d'extraction des données d'un document : statut, résultat brut
     (`json_extraction`), variables retenues (`json_variables`), erreurs
-    éventuelles et nombre de tentatives.
+    éventuelles, nombre de tentatives et tokens consommés (cumul de tous les
+    appels au LLM : classification + chaque tentative d'extraction).
     """
 
     extraction_date = models.DateField("date d'extraction", default=timezone.localdate)
@@ -25,6 +26,8 @@ class Extraction(models.Model):
     json_variables = models.TextField('variables (JSON)', null=True, blank=True)
     errors = models.TextField('erreurs', null=True, blank=True)
     attempts = models.IntegerField('tentatives', default=0)
+    input_tokens = models.IntegerField("tokens d'entrée", default=0)
+    output_tokens = models.IntegerField('tokens de sortie', default=0)
     document = models.ForeignKey(Document, on_delete=models.PROTECT, related_name='extractions')
 
     class Meta:

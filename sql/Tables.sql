@@ -119,6 +119,8 @@ CREATE TABLE extraction(
    errors TEXT,
    attempts INTEGER NOT NULL DEFAULT 0,
    document_id INTEGER NOT NULL,
+   input_tokens INTEGER NOT NULL DEFAULT 0,
+   output_tokens INTEGER NOT NULL DEFAULT 0,
    PRIMARY KEY(id),
    FOREIGN KEY(document_id) REFERENCES document(id)
 );

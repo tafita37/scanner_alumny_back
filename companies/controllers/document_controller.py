@@ -93,22 +93,6 @@ def upload_documents(request, audit_id):
     )
     return Response(list(rows), status=status.HTTP_201_CREATED)
 
-
-def print_anonymization(document, pages):
-    """
-    Affiche dans la console la correspondance jeton -> donnée personnelle du document, puis le
-    texte anonymisé de chaque page. Étape de mise au point de l'anonymisation : rien n'est
-    renvoyé dans la réponse API.
-    """
-    anonymized_pages, mapping = anonymize_pages(pages)
-    print(f'--- Anonymisation du document {document.pk} ({document.original_name}) ---')
-    for token, value in mapping.values.items():
-        print(f'{token:<20} = {value!r}')
-    for page in anonymized_pages:
-        print(f"--- page {page['number']} ---")
-        print(page['text'])
-
-
 def extraction_payload(extraction):
     """Extraction renvoyée par l'API, avec ses colonnes JSON décodées."""
     return {
@@ -117,6 +101,8 @@ def extraction_payload(extraction):
         'extraction_date': extraction.extraction_date,
         'status': extraction.status,
         'attempts': extraction.attempts,
+        'input_tokens': extraction.input_tokens,
+        'output_tokens': extraction.output_tokens,
         'errors': json.loads(extraction.errors) if extraction.errors else [],
         'extraction': json.loads(extraction.json_extraction) if extraction.json_extraction else None,
         'variables': json.loads(extraction.json_variables) if extraction.json_variables else None,
@@ -197,7 +183,6 @@ def extract_document(request, pk):
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
     except DocumentConversionError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    # print_anonymization(document, result['pages'])
     try:
         extraction = structure_document(document, result['pages'], result['errors'])
     except StructuringError as exc:
