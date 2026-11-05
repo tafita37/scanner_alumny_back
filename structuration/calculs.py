@@ -63,40 +63,9 @@ def sens_document(e: DocumentCommercial, siren: str | None) -> str | None:
     return None
 
 
-def _conditions_paiement(e: DocumentCommercial) -> dict:
-    return {
-        "acompte_pourcentage": e.conditions.acompte_pourcentage,
-        "acompte_montant": e.conditions.acompte_montant,
-        "delai_reglement_jours": delai_reglement(e),
-        "mode_paiement": e.conditions.mode_paiement,
-        "escompte_pourcentage": e.conditions.escompte_pourcentage,
-    }
-
-
-def _montant_par_section(lignes) -> dict | None:
-    """Montant HT par section (lot, regroupement) ; None si aucune ligne n'est rangée dans une section."""
-    sections = {}
-    for l in lignes:
-        if l.section and l.total_ht is not None:
-            sections[l.section] = round(sections.get(l.section, 0) + l.total_ht, 2)
-    return sections or None
-
-
-def _taux_tva(e: DocumentCommercial, lignes) -> list[float]:
-    """Taux de TVA appliqués : récapitulatif du pied, sinon taux des lignes."""
-    taux = {v.taux for v in e.pied.ventilation_tva if v.taux is not None}
-    return sorted(taux or {l.taux_tva for l in lignes if l.taux_tva is not None})
-
-
-def _variables_document(e: DocumentCommercial, lignes) -> dict:
-    return {
-        "date_document": e.en_tete.date_document,
-        "client": e.destinataire.nom,
-        "montant_par_section": _montant_par_section(lignes),
-        "taux_tva_appliques": _taux_tva(e, lignes),
-        "duree_execution_jours": _jours_entre(e.en_tete.date_debut_execution, e.en_tete.date_fin_execution),
-        "conditions_de_paiement": _conditions_paiement(e),
-    }
+def _variables_document(e: DocumentCommercial) -> dict:
+    """Variables communes : seules celles que le code calcule (le reste se lit dans l'extraction)."""
+    return {"delai_reglement_jours": delai_reglement(e)}
 
 
 # --------------------------------------------------------------------------- #
@@ -115,20 +84,17 @@ def variables_btp(e: ExtractionBTP) -> dict:
     if situation is not None and None not in (situation.montant_cumule_ht, situation.montant_deja_facture_ht):
         montant_situation = _arrondi(situation.montant_cumule_ht - situation.montant_deja_facture_ht)
 
-    return _variables_document(e, e.lignes) | {
+    return _variables_document(e) | {
         "taux_horaire_main_oeuvre": _division(montant_heures, heures),
         "heures_main_oeuvre": heures or None,
         "montant_total_main_oeuvre": _somme(l.total_ht for l in e.lignes if l.nature == "main_oeuvre"),
         "montant_total_fournitures": _somme(l.total_ht for l in e.lignes if l.nature == "fourniture"),
         "marge_brute_apparente": None,  # méthode de calcul à définir avec Ny Aina
-        "retenue_garantie_pourcentage": e.retenue_garantie_pourcentage,
-        "autoliquidation_tva": e.autoliquidation_tva,
         "avancement_pourcentage": situation.avancement_pourcentage if situation else None,
         # Travaux facturés par cette situation : cumul - déjà facturé
         "montant_situation_ht": montant_situation,
         # Durée écrite en texte ("3 semaines") : conversion en jours non faite (jours ouvrés ou calendaires ?)
         "duree_travaux_jours": None,
-        "libelles_prestations": [l.libelle for l in e.lignes],
     }
 
 
@@ -156,7 +122,7 @@ def variables_services(e: ExtractionServices) -> dict:
     jours_regie = sum(l.quantite for l in regie_jour)
     jours_forfaits = sum(l.jours_estimes for l in forfaits_chiffres)
 
-    return _variables_document(e, e.lignes) | {
+    return _variables_document(e) | {
         # TJM vendu en régie : montant des lignes au jour / nombre de jours
         "tjm_vendu_regie": _division(sum(l.total_ht for l in regie_jour), jours_regie),
         "tjm_par_profil": _tjm_par_profil([l for l in regie_jour if l.profil]),
@@ -173,7 +139,6 @@ def variables_services(e: ExtractionServices) -> dict:
         "nb_participants": e.nb_participants,
         # Base à définir : total HT du document ou seules les lignes de formation (hors frais) ?
         "prix_par_participant": None,
-        "libelles_prestations": [l.libelle for l in e.lignes],
     }
 
 
@@ -211,17 +176,7 @@ def _marge_fiche(f) -> dict:
 
 
 def variables_industrie(e: ExtractionIndustrie) -> dict:
-    return _variables_document(e, e.lignes_commande) | {
-        "chiffre_affaires_commande": _somme(l.total_ht for l in e.lignes_commande),
-        "produits_commandes": [l.libelle for l in e.lignes_commande],
-        # Prix et quantité par produit : croisés plus tard avec la fiche de prix de revient (par référence)
-        "lignes_commande": [
-            {"produit": l.libelle, "reference": l.reference, "quantite": l.quantite,
-             "unite": l.unite, "prix_unitaire_ht": l.prix_unitaire_ht}
-            for l in e.lignes_commande
-        ],
-        "frais_port_ht": e.livraison.frais_port_ht,
-        "delai_livraison_jours": _jours_entre(e.en_tete.date_document, e.livraison.date_livraison),
+    return _variables_document(e) | {
         "marges_par_produit": [_marge_fiche(f) for f in e.fiches_prix_revient],
     }
 

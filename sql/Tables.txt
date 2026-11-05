@@ -118,6 +118,8 @@ CREATE TABLE extraction(
    json_variables TEXT,
    errors TEXT,
    attempts INTEGER NOT NULL,
+   input_tokens INTEGER NOT NULL,
+   output_tokens INTEGER NOT NULL,
    id_1 INTEGER NOT NULL,
    PRIMARY KEY(id),
    FOREIGN KEY(id_1) REFERENCES document(id)

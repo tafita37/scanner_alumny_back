@@ -48,6 +48,10 @@ def structure_document(document, pages: list[dict], conversion_errors: list[str]
             f'Secteur « {document.audit.company.industry.name} » non pris en charge par l\'agent.'
         )
     anonymized_pages, mapping = anonymize_pages(pages)
+    #afficher mapping pour debug
+    print(f'--- Mapping pour le document {document.pk} ---')
+    for token, value in mapping.values.items():
+        print(f'{token:<20} = {value!r}')
     # Enregistrée avant l'appel au LLM (plusieurs secondes) : statut « en cours » visible en base.
     extraction = Extraction.objects.create(document=document)
     try:
@@ -61,6 +65,8 @@ def structure_document(document, pages: list[dict], conversion_errors: list[str]
     # Conversion partielle : même si l'agent n'a rien relevé, un humain doit vérifier.
     extraction.status = StatutExtraction.A_VERIFIER if conversion_errors else result['statut']
     extraction.attempts = result['tentatives']
+    extraction.input_tokens = result['tokens_entree']
+    extraction.output_tokens = result['tokens_sortie']
     extraction.errors = to_json([*conversion_errors, *deanonymize(result['erreurs'], mapping)])
     # Échec après 3 essais : on garde la dernière réponse du LLM pour la vérification manuelle.
     extraction.json_extraction = to_json(

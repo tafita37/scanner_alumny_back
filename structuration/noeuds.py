@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import unicodedata
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -11,18 +13,44 @@ from .calculs import CALCULS_PAR_TYPE
 from .coherence import CONTROLES_PAR_TYPE
 from .etat import EtatExtraction
 from .prompts import PROMPT_CLASSIFICATION, PROMPTS_PAR_TYPE
-from .schemas import SCHEMAS_PAR_TYPE, Classification
+from .schemas import SCHEMAS_PAR_TYPE, Classification, ExtractionComptesAnnuels
 load_dotenv()
 MODELE = os.getenv("GROQ_MODELE")
 MAX_TENTATIVES = 3
+# Plafond de sortie : raisonnement du modèle + JSON produit
+MAX_TOKENS = 16384
+# Raisonnement "medium" là où il faut interpréter (rattacher les postes d'une liasse fiscale aux
+# champs, distinguer N / N-1, brut / net) ; "low" ailleurs, où il s'agit surtout de recopier et
+# où la sortie peut être longue (nombreuses lignes de devis ou de facture).
+EFFORT_RAISONNEMENT = {ExtractionComptesAnnuels: "medium"}
+EFFORT_RAISONNEMENT_DEFAUT = "low"
 # Le début du document suffit pour savoir de quel type il est
-LONGUEUR_CLASSIFICATION = 4000
+LONGUEUR_CLASSIFICATION = 4000      # recherche des mots-clés
+LONGUEUR_CLASSIFICATION_LLM = 2000  # extrait envoyé au LLM quand les mots-clés ne suffisent pas
+
+# Mots-clés propres à chaque catégorie, cherchés sans accents ni majuscules.
+# "bilan" n'y est pas : on le trouve aussi dans un devis ("bilan énergétique") ou une formation
+# ("bilan de compétences").
+MOTS_CLES_CATEGORIES = {
+    "commercial": re.compile(
+        r"\b(factures?|devis|bon de commande|proposition commerciale|prix de revient|situation de travaux)\b"
+    ),
+    "comptes_annuels": re.compile(
+        r"\b(comptes? de resultat|comptes annuels|liasse fiscale|capitaux propres|actif immobilise|actif circulant)\b"
+    ),
+}
 
 
 @lru_cache
 def _llm(schema: type):
     """Client Groq en mode strict, créé une seule fois par schéma de sortie."""
-    return ChatGroq(model=MODELE, temperature=0, max_retries=2).with_structured_output(
+    return ChatGroq(
+        model=MODELE,
+        temperature=0,
+        max_retries=2,
+        max_tokens=MAX_TOKENS,
+        reasoning_effort=EFFORT_RAISONNEMENT.get(schema, EFFORT_RAISONNEMENT_DEFAUT),
+    ).with_structured_output(
         schema,
         method="json_schema",  # Structured Outputs de Groq
         strict=True,           # sortie forcément conforme au schéma
@@ -36,19 +64,34 @@ def _tokens(etat: EtatExtraction, reponse: dict) -> dict:
             "tokens_sortie": etat["tokens_sortie"] + usage.get("output_tokens", 0)}
 
 
+def _categorie_par_mots_cles(texte: str) -> str | None:
+    """
+    Catégorie du document si son début ne contient les mots-clés que d'une seule catégorie,
+    None sinon (aucun mot-clé, ou mots-clés des deux catégories) : le LLM tranche alors.
+    """
+    debut = unicodedata.normalize("NFKD", texte[:LONGUEUR_CLASSIFICATION].lower())
+    debut = "".join(c for c in debut if not unicodedata.combining(c))
+    trouvees = [categorie for categorie, motif in MOTS_CLES_CATEGORIES.items() if motif.search(debut)]
+    return trouvees[0] if len(trouvees) == 1 else None
+
+
 # 0. Classification : document commercial ou comptes annuels ?
+# Par mots-clés quand c'est sans ambiguïté (aucun appel LLM), sinon par le LLM.
 def classification(etat: EtatExtraction) -> dict:
-    messages = [SystemMessage(PROMPT_CLASSIFICATION), HumanMessage(etat["texte"][:LONGUEUR_CLASSIFICATION])]
-    try:
-        reponse = _llm(Classification).invoke(messages)
-    except Exception as e:  # réseau, quota dépassé, clé invalide...
-        return {"erreurs": etat["erreurs"] + [f"Classification, appel LLM : {type(e).__name__}: {e}"]}
+    categorie = _categorie_par_mots_cles(etat["texte"])
+    maj = {}
+    if categorie is None:
+        messages = [SystemMessage(PROMPT_CLASSIFICATION), HumanMessage(etat["texte"][:LONGUEUR_CLASSIFICATION_LLM])]
+        try:
+            reponse = _llm(Classification).invoke(messages)
+        except Exception as e:  # réseau, quota dépassé, clé invalide...
+            return {"erreurs": etat["erreurs"] + [f"Classification, appel LLM : {type(e).__name__}: {e}"]}
 
-    maj = _tokens(etat, reponse)
-    if reponse["parsing_error"] is not None:
-        return maj | {"erreurs": etat["erreurs"] + [f"Classification, JSON illisible : {reponse['parsing_error']}"]}
+        maj = _tokens(etat, reponse)
+        if reponse["parsing_error"] is not None:
+            return maj | {"erreurs": etat["erreurs"] + [f"Classification, JSON illisible : {reponse['parsing_error']}"]}
+        categorie = reponse["parsed"].categorie
 
-    categorie = reponse["parsed"].categorie
     if categorie == "commercial":
         return maj | {"type_extraction": etat["secteur"]}
     if categorie == "comptes_annuels":
