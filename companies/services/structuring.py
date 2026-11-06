@@ -48,11 +48,6 @@ def structure_document(document, pages: list[dict], conversion_errors: list[str]
             f'Secteur « {document.audit.company.industry.name} » non pris en charge par l\'agent.'
         )
     anonymized_pages, mapping = anonymize_pages(pages)
-    #afficher mapping pour debug
-    print(f'--- Mapping pour le document {document.pk} ---')
-    for token, value in mapping.values.items():
-        print(f'{token:<20} = {value!r}')
-    # Enregistrée avant l'appel au LLM (plusieurs secondes) : statut « en cours » visible en base.
     extraction = Extraction.objects.create(document=document)
     try:
         result = extraire(build_text(anonymized_pages), sector)

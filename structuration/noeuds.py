@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from .calculs import CALCULS_PAR_TYPE
 from .coherence import CONTROLES_PAR_TYPE
 from .etat import EtatExtraction
+from .pages import pages_comptes_annuels
 from .prompts import PROMPT_CLASSIFICATION, PROMPTS_PAR_TYPE
 from .schemas import SCHEMAS_PAR_TYPE, Classification, ExtractionComptesAnnuels
 load_dotenv()
@@ -95,7 +96,8 @@ def classification(etat: EtatExtraction) -> dict:
     if categorie == "commercial":
         return maj | {"type_extraction": etat["secteur"]}
     if categorie == "comptes_annuels":
-        return maj | {"type_extraction": "COMPTES_ANNUELS"}
+        # Seules les pages utiles (bilan, compte de résultat, annexe) sont envoyées à l'extraction.
+        return maj | {"type_extraction": "COMPTES_ANNUELS", "texte": pages_comptes_annuels(etat["texte"])}
     return maj | {"erreurs": etat["erreurs"] + ["Document non reconnu : ni document commercial, ni comptes annuels."]}
 
 

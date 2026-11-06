@@ -2,7 +2,7 @@ from typing import TypedDict
 
 
 class EtatExtraction(TypedDict):
-    texte: str                            # texte DÉJÀ anonymisé, envoyé au LLM
+    texte: str                            # texte DÉJÀ anonymisé, envoyé au LLM (comptes annuels : pages utiles seules)
     secteur: str                          # "BTP", "SERVICES" ou "INDUSTRIE"
     type_extraction: str | None           # fixé par la classification : le secteur ou "COMPTES_ANNUELS"
     modele: str
