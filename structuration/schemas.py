@@ -269,7 +269,6 @@ class ExtractionIndustrie(DocumentCommercial):
 
 class IdentificationComptes(Strict):
     raison_sociale: str | None = Field(description="Dénomination de l'entreprise.")
-    siren: str | None = Field(description="9 chiffres.")
     date_ouverture: str | None = Field(description="Ouverture de l'exercice N au format AAAA-MM-JJ.")
     date_cloture: str | None = Field(description="Clôture de l'exercice N au format AAAA-MM-JJ.")
     duree_exercice_mois: int | None = Field(description="Souvent 12.")

@@ -29,7 +29,8 @@ def construire_graphe():
 graphe = construire_graphe()
 
 
-def extraire(texte_anonymise: str, secteur: str) -> dict:
+def extraire(texte_anonymise: str, secteur: str, siren: str | None) -> dict:
+    """`siren` : celui de l'entreprise auditée, enregistré en base, recopié dans les variables."""
     secteur = secteur.upper()
     if secteur not in SECTEURS:
         raise ValueError(f"Secteur inconnu : {secteur}. Attendu : {list(SECTEURS)}.")
@@ -37,11 +38,13 @@ def extraire(texte_anonymise: str, secteur: str) -> dict:
     return graphe.invoke({
         "texte": texte_anonymise,
         "secteur": secteur,
+        "siren": siren,
         "type_extraction": None,
         "modele": noeuds.MODELE,
         "tentatives": 0,
         "extraction_brute": None,
         "erreurs_derniere_tentative": [],
+        "erreurs_a_corriger": [],
         "erreurs": [],
         "extraction": None,
         "variables": None,

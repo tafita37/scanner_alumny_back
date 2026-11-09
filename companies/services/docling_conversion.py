@@ -2,6 +2,10 @@
 Conversion d'un PDF en texte Markdown par Docling : analyse de la mise en page (colonnes,
 tableaux, en-têtes et pieds de page) et OCR des seules zones sans texte natif (RapidOCR).
 Un PDF natif, scanné ou mixte suit donc le même chemin.
+Le temps de conversion vient surtout de la structure des tableaux (TableFormer, mode ACCURATE :
+le mode FAST, deux fois plus rapide, fusionne des lignes d'une liasse fiscale et rattache des
+montants au mauvais poste). Pour l'écourter, seules les pages utiles peuvent être demandées
+(voir pdf_extraction.pages_to_convert).
 
 Les modèles sont lourds à charger : le convertisseur est créé une seule fois, au premier appel,
 puis réutilisé.
@@ -52,37 +56,62 @@ def get_converter(artifacts_path: str | None):
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
 
-def conversion_errors(result) -> list[str]:
+def conversion_errors(result, original_number) -> list[str]:
     """
     Erreurs d'un succès partiel, une par problème signalé par Docling, avec la page concernée
-    quand il y en a une. Une page en échec reste dans le document mais sans texte.
+    (numéro dans le PDF d'origine) quand il y en a une. Une page en échec reste dans le document
+    mais sans texte.
     """
     return [
-        f'Conversion du PDF, page {error.page_no} : {error.error_message}'
+        f'Conversion du PDF, page {original_number(error.page_no)} : {error.error_message}'
         if error.page_no is not None
         else f'Conversion du PDF : {error.error_message}'
         for error in result.errors
     ]
 
 
-def run_conversion(pdf_path: Path, artifacts_path: str | None) -> dict:
+def select_pages(pdf_path: Path, page_numbers: list[int]):
+    """PDF réduit aux pages `page_numbers` (numéros à partir de 1), en mémoire, pour Docling."""
+    from io import BytesIO
+
+    import pymupdf
+    from docling_core.types.io import DocumentStream
+
+    with pymupdf.open(pdf_path) as doc:
+        doc.select([number - 1 for number in page_numbers])
+        data = doc.tobytes()
+    return DocumentStream(name=pdf_path.name, stream=BytesIO(data))
+
+
+def run_conversion(pdf_path: Path, artifacts_path: str | None, page_numbers: list[int] | None) -> dict:
     """
     Exécuté dans CONVERSION_EXECUTOR : {'pages': [{'number', 'text'}, ...], 'errors': [...]}.
+    `page_numbers` : pages à convertir (numéros à partir de 1), None pour tout le PDF. Les pages
+    renvoyées gardent leur numéro dans le PDF d'origine.
     Un succès partiel (certaines pages en échec) est accepté, les autres pages restent utiles,
     mais ses erreurs sont renvoyées dans 'errors' (vide si la conversion est complète).
     """
     from docling.datamodel.base_models import ConversionStatus
     from docling_core.types.doc import ContentLayer
 
-    result = get_converter(artifacts_path).convert(pdf_path, raises_on_error=False)
+    source = pdf_path if page_numbers is None else select_pages(pdf_path, page_numbers)
+
+    def original_number(number: int) -> int:
+        """Numéro dans le PDF d'origine de la page `number` du PDF converti."""
+        return number if page_numbers is None else page_numbers[number - 1]
+
+    result = get_converter(artifacts_path).convert(source, raises_on_error=False)
     if result.status not in (ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS):
         details = '; '.join(error.error_message for error in result.errors) or result.status.value
         raise DocumentConversionError(f'Conversion impossible : {details}')
-    errors = conversion_errors(result) if result.status == ConversionStatus.PARTIAL_SUCCESS else []
+    errors = (
+        conversion_errors(result, original_number)
+        if result.status == ConversionStatus.PARTIAL_SUCCESS else []
+    )
     document = result.document
     pages = [
         {
-            'number': number,
+            'number': original_number(number),
             'text': document.export_to_markdown(
                 page_no=number,
                 # Le corps du document, plus les en-têtes et pieds de page (mentions légales,
@@ -100,15 +129,16 @@ def run_conversion(pdf_path: Path, artifacts_path: str | None) -> dict:
     return {'pages': pages, 'errors': errors}
 
 
-def convert_pdf(pdf_path: Path, artifacts_path: str | None) -> dict:
+def convert_pdf(pdf_path: Path, artifacts_path: str | None, page_numbers: list[int] | None = None) -> dict:
     """
-    Retourne le texte Markdown de chaque page du PDF, dans l'ordre, et les erreurs d'une
-    conversion partielle : {'pages': [{'number', 'text'}, ...], 'errors': [...]}.
+    Retourne le texte Markdown de chaque page du PDF (ou des seules `page_numbers`, numéros à
+    partir de 1), dans l'ordre, et les erreurs d'une conversion partielle :
+    {'pages': [{'number', 'text'}, ...], 'errors': [...]}.
     Le travail est fait dans CONVERSION_EXECUTOR ; l'appelant attend le résultat.
     """
     global CONVERSION_EXECUTOR
     try:
-        return CONVERSION_EXECUTOR.submit(run_conversion, pdf_path, artifacts_path).result()
+        return CONVERSION_EXECUTOR.submit(run_conversion, pdf_path, artifacts_path, page_numbers).result()
     except BrokenProcessPool as exc:
         # Le processus Docling est mort (manque de mémoire...) : on en prépare un neuf pour les
         # appels suivants, sinon tous échoueraient jusqu'au redémarrage du serveur.

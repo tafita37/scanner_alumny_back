@@ -284,7 +284,6 @@ def controles_comptes_annuels(e: ExtractionComptesAnnuels) -> list[str]:
     ouverture, cloture = _date(ident.date_ouverture), _date(ident.date_cloture)
     if ouverture and cloture and cloture <= ouverture:
         erreurs.append(f"date_cloture ({cloture}) n'est pas postérieure à date_ouverture ({ouverture}).")
-    erreurs += _controle_identifiant(ident.siren, "siren", (9,))
 
     for bloc, noms in _POSTES_POSITIFS.items():
         for nom in noms:

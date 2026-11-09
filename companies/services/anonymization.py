@@ -11,7 +11,13 @@ import unicodedata
 from functools import lru_cache, partial
 
 import phonenumbers
-from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, RecognizerResult
+from presidio_analyzer import (
+    AnalyzerEngine,
+    Pattern,
+    PatternRecognizer,
+    RecognizerRegistry,
+    RecognizerResult,
+)
 from presidio_analyzer.nlp_engine import NlpEngine, NlpEngineProvider
 from presidio_analyzer.predefined_recognizers import (
     EmailRecognizer,
@@ -20,7 +26,7 @@ from presidio_analyzer.predefined_recognizers import (
     SpacyRecognizer,
 )
 from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
+from presidio_anonymizer.entities import ConflictResolutionStrategy, OperatorConfig
 from spacy.tokens import Span
 
 LANGUAGE = 'fr'
@@ -55,6 +61,47 @@ NLP_CONFIGURATION = {
         'labels_to_ignore': ['ORG', 'MISC'],
     },
 }
+
+# Adresses postales : spaCy ne reconnaît que les noms de villes, pas « 33 avenue de la Gare »
+# ni « 16000 ». Toutes les adresses sont masquées, sans chercher à distinguer celle d'un client
+# particulier de celle d'une entreprise.
+# Espace horizontal : une adresse ne déborde jamais sur la ligne suivante.
+SPACE = r'[^\S\n]'
+STREET_TYPES = (
+    r'rue|avenue|av|boulevard|bd|bld|bvd|chemin|chem|all[ée]e|impasse|imp|place|route|rte'
+    r'|quai|square|passage|r[ée]sidence|lotissement|hameau|lieu[- ]dit|chauss[ée]e|faubourg'
+    r'|fbg|sentier|esplanade|rond[- ]point|cit[ée]|villa|mont[ée]e|traverse|parvis'
+)
+# « 16000 Angoulême », « 17000 La Rochelle Cedex 9 » : code postal (département 01 à 98) suivi
+# d'un nom avec majuscule (sauf une unité monétaire : « 12500 Euros »).
+CEDEX = rf'cedex(?:{SPACE}+\d{{1,2}})?'
+CITY_WORD = r"(?!cedex\b)(?-i:[A-ZÀ-Ý])[\w'’\-]*"
+POSTAL_CODE_CITY = (
+    rf'(?:0[1-9]|[1-8]\d|9[0-8])\d{{3}}{SPACE}+(?!(?:eur|euros?|ht|ttc)\b){CITY_WORD}'
+    rf"(?:{SPACE}+(?:{CITY_WORD}|sur|sous|l[èe]s|en|de|du|des|la|le|aux?)){{0,4}}"
+    rf'(?:{SPACE}+{CEDEX})?'
+)
+# Mots qui ouvrent une autre information sur la même ligne : ils arrêtent le nom de la voie.
+STREET_STOP_WORDS = r't[ée]l|fax|e-?mail|mail|port|mobile|siret|siren|tva'
+# « 33 avenue de la Gare », « 12 bis rue du 8 Mai 1945 16000 Angoulême » : numéro, type de voie,
+# jusqu'à 6 mots (arrêtés par une virgule, une fin de ligne ou une cellule de tableau), puis
+# éventuellement le code postal et la ville sur la même ligne.
+STREET_REGEX = (
+    rf'(?<![\w.,])\d{{1,4}}(?:{SPACE}?(?:bis|ter|quater|[a-d]))?,?{SPACE}+'
+    rf'(?:{STREET_TYPES})\b\.?'
+    rf"(?:{SPACE}+(?!\d{{5}}\b|(?:{STREET_STOP_WORDS})\b)[\w'’.\-]+){{1,6}}"
+    rf'(?:,?{SPACE}+{POSTAL_CODE_CITY})?'
+)
+# Code postal et ville seuls (adresse sur deux lignes) : admis seulement en début de ligne,
+# d'élément de liste ou de cellule de tableau, pour ne pas prendre « Soit 25000 Total » ou un
+# numéro de facture pour un code postal.
+POSTAL_CODE_REGEX = (
+    rf'(?:(?<=^)|(?<=^{SPACE})|(?<=\|)|(?<=\|{SPACE})|(?<=^-{SPACE}))'
+    rf'{POSTAL_CODE_CITY}'
+)
+# Score bas : quand une adresse chevauche en partie une autre entité (téléphone, nom en fin
+# de ligne), c'est l'adresse qui est raccourcie, l'autre entité garde son jeton.
+ADDRESS_SCORE = 0.3
 
 
 # Natures grammaticales (étiquettes spaCy) admises dans un nom de personne ou de lieu :
@@ -139,6 +186,14 @@ def build_registry() -> RecognizerRegistry:
     registry.add_recognizer(IbanRecognizer(
         supported_language=LANGUAGE,
         context=['iban', 'rib', 'compte', 'bancaire'],
+    ))
+    registry.add_recognizer(PatternRecognizer(
+        supported_entity='ADDRESS',
+        supported_language=LANGUAGE,
+        patterns=[
+            Pattern('street', STREET_REGEX, ADDRESS_SCORE),
+            Pattern('postal_code_city', POSTAL_CODE_REGEX, ADDRESS_SCORE),
+        ],
     ))
     return registry
 
@@ -234,7 +289,14 @@ def anonymize_text(text: str, mapping: PseudonymMapping) -> str:
         entity_type: OperatorConfig('custom', {'lambda': partial(mapping.token_for, entity_type)})
         for entity_type in {result.entity_type for result in results}
     }
-    return get_anonymizer().anonymize(text=text, analyzer_results=results, operators=operators).text
+    # Une entité contenue dans une autre est écartée (« Angoulême » dans l'adresse complète) ;
+    # deux entités qui se chevauchent en partie sont raccourcies au lieu de se superposer.
+    return get_anonymizer().anonymize(
+        text=text,
+        analyzer_results=results,
+        operators=operators,
+        conflict_resolution=ConflictResolutionStrategy.REMOVE_INTERSECTIONS,
+    ).text
 
 
 def value_regex(normalized_value: str) -> str:

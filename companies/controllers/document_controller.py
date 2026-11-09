@@ -145,8 +145,8 @@ def delete_document(request, pk):
 @permission_classes([IsAuthenticated])
 def extract_document(request, pk):
     """
-    Extrait le texte d'un document PDF déjà uploadé (Docling, OCR des seules zones scannées),
-    l'anonymise puis le fait structurer par l'agent IA : document commercial (lu selon le secteur
+    Extrait le texte d'un document PDF déjà uploadé (Docling, OCR des seules zones scannées ;
+    pour des comptes annuels natifs, seules les pages utiles sont converties), l'anonymise puis le fait structurer par l'agent IA : document commercial (lu selon le secteur
     de l'entreprise) ou comptes annuels, type reconnu par l'agent.
     Renvoie l'extraction enregistrée : statut (`ok` ou `a_verifier`), nombre de tentatives,
     erreurs, données lues par l'agent et variables calculées, ainsi que les `indicateurs` de
