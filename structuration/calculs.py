@@ -185,7 +185,8 @@ def variables_industrie(e: ExtractionIndustrie) -> dict:
 # COMPTES ANNUELS
 # --------------------------------------------------------------------------- #
 
-def variables_comptes_annuels(e: ExtractionComptesAnnuels) -> dict:
+def variables_comptes_annuels(e: ExtractionComptesAnnuels, siren: str | None = None) -> dict:
+    """`siren` : celui de l'entreprise auditée, enregistré en base (il n'est pas demandé au LLM)."""
     facteur = 1000 if e.unite == "milliers_euros" else 1
     ident, actif, passif, cr, annexe = e.identification, e.actif, e.passif, e.compte_resultat, e.annexe
 
@@ -202,7 +203,7 @@ def variables_comptes_annuels(e: ExtractionComptesAnnuels) -> dict:
 
     return {
         "raison_sociale": ident.raison_sociale,
-        "siren": ident.siren,
+        "siren": siren,
         "date_cloture": ident.date_cloture,
         "duree_exercice_mois": ident.duree_exercice_mois,
         "compte_resultat_present": e.compte_resultat_present,

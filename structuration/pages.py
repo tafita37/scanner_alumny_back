@@ -5,8 +5,12 @@ servent à l'extraction : bilan actif et passif, compte de résultat, quelques i
 Les autres (synthèses sur plusieurs exercices, ratios, soldes intermédiaires de gestion, détail des
 comptes, tableaux d'immobilisations et d'emprunts) coûtent des tokens et font confondre N et N-1.
 
-Le texte reçu est celui construit par companies.services.structuring.build_text : chaque page est
-précédée d'une ligne "--- page N ---".
+La sélection sert deux fois :
+- avant la conversion par Docling, sur le texte natif du PDF (companies.services.pdf_extraction) :
+  Docling, lent sur les tableaux, ne lit alors que les pages retenues ;
+- avant l'extraction par le LLM, sur le texte Docling (pages_comptes_annuels) : le texte reçu est
+  celui construit par companies.services.structuring.build_text, chaque page y est précédée d'une
+  ligne "--- page N ---".
 """
 import re
 import unicodedata
@@ -60,16 +64,23 @@ def nature_page(page: str) -> str | None:
     return None
 
 
-def pages_comptes_annuels(texte: str) -> str:
+def indices_pages_utiles(pages: list[str]) -> list[int] | None:
     """
-    Texte réduit à la première page (raison sociale, SIREN, dates de l'exercice), aux pages
-    d'états financiers et aux pages d'annexe utiles. Si aucune page d'états financiers n'est
-    reconnue (OCR illisible, présentation inhabituelle), le texte est renvoyé entier : mieux vaut
-    trop de pages qu'un bilan manquant.
+    Indices (à partir de 0) des pages à garder parmi les textes `pages` : la première (raison
+    sociale, dates de l'exercice), les pages d'états financiers et les pages d'annexe utiles.
+    None si aucune page d'états financiers n'est reconnue (OCR illisible, présentation
+    inhabituelle) : mieux vaut alors garder tout le document qu'un bilan manquant.
     """
-    pages = [page for page in DEBUT_PAGE.split(texte) if page.strip()]
     natures = [nature_page(page) for page in pages[1:]]
     if "etats" not in natures:
+        return None
+    return [0, *(indice for indice, nature in enumerate(natures, start=1) if nature is not None)]
+
+
+def pages_comptes_annuels(texte: str) -> str:
+    """Texte réduit aux pages utiles (voir indices_pages_utiles), ou entier si rien n'est reconnu."""
+    pages = [page for page in DEBUT_PAGE.split(texte) if page.strip()]
+    indices = indices_pages_utiles(pages)
+    if indices is None:
         return texte
-    utiles = [page for page, nature in zip(pages[1:], natures) if nature is not None]
-    return "\n\n".join(page.strip() for page in [pages[0], *utiles])
+    return "\n\n".join(pages[indice].strip() for indice in indices)

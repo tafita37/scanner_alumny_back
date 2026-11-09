@@ -65,6 +65,9 @@ Ignore les annexes, sauf pour remplir "annexe".
 6. Ni bilan ni compte de résultat : type_document = "hors_sujet" et null partout.
 7. Sous-totaux et totaux (résultat d'exploitation, total des capitaux propres...) : seulement s'ils
    sont écrits. Ne les calcule pas.
+8. Un total (produits, charges) se lit sur sa ligne TOTAL, jamais sur une ligne de détail. Les totaux
+   sont numérotés en chiffres romains (TOTAL I, II... VIII), parfois lus comme des chiffres et collés
+   au montant : "TOTAL 1 768 175" se lit TOTAL I, montant 768 175. Le résultat écrit (I - II) le confirme.
 
 """ + REGLES_COMMUNES
 

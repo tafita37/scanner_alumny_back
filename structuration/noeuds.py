@@ -1,15 +1,14 @@
-import json
 import os
 import re
 import unicodedata
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 from pydantic import ValidationError
 
-from .calculs import CALCULS_PAR_TYPE
+from .calculs import CALCULS_PAR_TYPE, variables_comptes_annuels
 from .coherence import CONTROLES_PAR_TYPE
 from .etat import EtatExtraction
 from .pages import pages_comptes_annuels
@@ -17,7 +16,7 @@ from .prompts import PROMPT_CLASSIFICATION, PROMPTS_PAR_TYPE
 from .schemas import SCHEMAS_PAR_TYPE, Classification, ExtractionComptesAnnuels
 load_dotenv()
 MODELE = os.getenv("GROQ_MODELE")
-MAX_TENTATIVES = 3
+MAX_TENTATIVES = 1
 # Plafond de sortie : raisonnement du modèle + JSON produit
 MAX_TOKENS = 16384
 # Raisonnement "medium" là où il faut interpréter (rattacher les postes d'une liasse fiscale aux
@@ -65,10 +64,11 @@ def _tokens(etat: EtatExtraction, reponse: dict) -> dict:
             "tokens_sortie": etat["tokens_sortie"] + usage.get("output_tokens", 0)}
 
 
-def _categorie_par_mots_cles(texte: str) -> str | None:
+def categorie_par_mots_cles(texte: str) -> str | None:
     """
     Catégorie du document si son début ne contient les mots-clés que d'une seule catégorie,
     None sinon (aucun mot-clé, ou mots-clés des deux catégories) : le LLM tranche alors.
+    Sert aussi, sur le texte natif du PDF, à choisir les pages à convertir (pdf_extraction).
     """
     debut = unicodedata.normalize("NFKD", texte[:LONGUEUR_CLASSIFICATION].lower())
     debut = "".join(c for c in debut if not unicodedata.combining(c))
@@ -79,7 +79,7 @@ def _categorie_par_mots_cles(texte: str) -> str | None:
 # 0. Classification : document commercial ou comptes annuels ?
 # Par mots-clés quand c'est sans ambiguïté (aucun appel LLM), sinon par le LLM.
 def classification(etat: EtatExtraction) -> dict:
-    categorie = _categorie_par_mots_cles(etat["texte"])
+    categorie = categorie_par_mots_cles(etat["texte"])
     maj = {}
     if categorie is None:
         messages = [SystemMessage(PROMPT_CLASSIFICATION), HumanMessage(etat["texte"][:LONGUEUR_CLASSIFICATION_LLM])]
@@ -97,6 +97,7 @@ def classification(etat: EtatExtraction) -> dict:
         return maj | {"type_extraction": etat["secteur"]}
     if categorie == "comptes_annuels":
         # Seules les pages utiles (bilan, compte de résultat, annexe) sont envoyées à l'extraction.
+        # Souvent déjà fait avant la conversion (pdf_extraction) : le tri ne retire alors rien.
         return maj | {"type_extraction": "COMPTES_ANNUELS", "texte": pages_comptes_annuels(etat["texte"])}
     return maj | {"erreurs": etat["erreurs"] + ["Document non reconnu : ni document commercial, ni comptes annuels."]}
 
@@ -106,12 +107,13 @@ def extraction(etat: EtatExtraction) -> dict:
     type_extraction = etat["type_extraction"]
     messages = [SystemMessage(PROMPTS_PAR_TYPE[type_extraction]), HumanMessage(etat["texte"])]
 
-    # À partir du 2e essai : on montre au LLM sa réponse précédente et ses erreurs
-    if etat["extraction_brute"] is not None and etat["erreurs_derniere_tentative"]:
-        messages.append(AIMessage(json.dumps(etat["extraction_brute"], ensure_ascii=False)))
+    # À partir du 2e essai : erreurs relevées sur la dernière réponse validée. La réponse elle-même
+    # n'est pas renvoyée : ajoutée au texte du document, elle fait dépasser la limite de tokens par
+    # requête de Groq, et les erreurs citent déjà les champs et les valeurs fautives.
+    if etat["erreurs_a_corriger"]:
         messages.append(HumanMessage(
-            "Ta réponse contient ces erreurs. Relis le document et corrige :\n- "
-            + "\n- ".join(etat["erreurs_derniere_tentative"])
+            "Ta réponse précédente contenait ces erreurs. Relis le document et corrige-les :\n- "
+            + "\n- ".join(etat["erreurs_a_corriger"])
         ))
 
     maj = {"tentatives": etat["tentatives"] + 1}
@@ -143,11 +145,11 @@ def validation(etat: EtatExtraction) -> dict:
         objet = SCHEMAS_PAR_TYPE[type_extraction].model_validate(etat["extraction_brute"])
     except ValidationError as e:
         err = [f"Schéma : {'.'.join(map(str, x['loc']))} : {x['msg']}" for x in e.errors()]
-        return {"erreurs_derniere_tentative": err, "erreurs": etat["erreurs"] + err}
+        return {"erreurs_derniere_tentative": err, "erreurs_a_corriger": err, "erreurs": etat["erreurs"] + err}
 
     err = CONTROLES_PAR_TYPE[type_extraction](objet)
     if err:
-        return {"erreurs_derniere_tentative": err, "erreurs": etat["erreurs"] + err}
+        return {"erreurs_derniere_tentative": err, "erreurs_a_corriger": err, "erreurs": etat["erreurs"] + err}
 
     maj = {"extraction": etat["extraction_brute"]}
     # Hors sujet : réponse valide, inutile de réessayer, mais un humain doit regarder
@@ -160,7 +162,11 @@ def validation(etat: EtatExtraction) -> dict:
 def calcul(etat: EtatExtraction) -> dict:
     type_extraction = etat["type_extraction"]
     objet = SCHEMAS_PAR_TYPE[type_extraction].model_validate(etat["extraction"])
-    return {"variables": CALCULS_PAR_TYPE[type_extraction](objet), "statut": "ok"}
+    if type_extraction == "COMPTES_ANNUELS":
+        variables = variables_comptes_annuels(objet, etat["siren"])
+    else:
+        variables = CALCULS_PAR_TYPE[type_extraction](objet)
+    return {"variables": variables, "statut": "ok"}
 
 
 # 4. Échec : document non reconnu, hors sujet, ou 3 essais sans réponse correcte

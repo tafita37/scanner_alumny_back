@@ -7,6 +7,7 @@ Le texte des pages est du Markdown produit par Docling : les tableaux y figurent
 donc par l'anonymisation comme le reste du texte.
 """
 import json
+import re
 
 from structuration.graphe import extraire
 from structuration.schemas import SECTEURS
@@ -20,9 +21,41 @@ class StructuringError(Exception):
     """Le document ne peut pas être envoyé à l'agent (secteur non pris en charge)."""
 
 
+# Séparateur de cellules d'un tableau Markdown (un « \| » échappé fait partie du contenu).
+CELL_SEPARATOR = re.compile(r'(?<!\\)\|')
+# Cellule de la ligne qui sépare l'en-tête du corps d'un tableau : « ------ », « :----: »...
+SEPARATOR_CELL = re.compile(r':?-+:?')
+
+
+def compact_table_row(line: str) -> str:
+    """
+    Ligne de tableau Markdown sans l'alignement des colonnes :
+    « | Capital social   |   10 000 |      | » -> « | Capital social | 10 000 | | »,
+    « |------------------|---------:|------| » -> « |---|---|---| ».
+    """
+    cells = [cell.strip() for cell in CELL_SEPARATOR.split(line.strip())[1:-1]]
+    if not cells:
+        return line.strip()
+    if all(SEPARATOR_CELL.fullmatch(cell) for cell in cells):
+        return '|' + '|'.join('---' for _ in cells) + '|'
+    return '|' + '|'.join(f' {cell} ' if cell else ' ' for cell in cells) + '|'
+
+
+def compact_tables(text: str) -> str:
+    """
+    Docling aligne les colonnes de ses tableaux avec des espaces et des tirets : sans intérêt
+    pour le LLM, ils représentent une bonne part des tokens d'une liasse fiscale, faite presque
+    entièrement de tableaux. Les autres lignes ne sont pas modifiées.
+    """
+    return '\n'.join(
+        compact_table_row(line) if line.lstrip().startswith('|') and line.rstrip().endswith('|') else line
+        for line in text.split('\n')
+    )
+
+
 def build_text(pages: list[dict]) -> str:
-    """Texte envoyé au LLM : les pages, chacune précédée de son numéro."""
-    return '\n\n'.join(f"--- page {page['number']} ---\n{page['text']}" for page in pages)
+    """Texte envoyé au LLM : les pages, chacune précédée de son numéro, tableaux compactés."""
+    return '\n\n'.join(f"--- page {page['number']} ---\n{compact_tables(page['text'])}" for page in pages)
 
 
 def to_json(value) -> str | None:
@@ -50,7 +83,7 @@ def structure_document(document, pages: list[dict], conversion_errors: list[str]
     anonymized_pages, mapping = anonymize_pages(pages)
     extraction = Extraction.objects.create(document=document)
     try:
-        result = extraire(build_text(anonymized_pages), sector)
+        result = extraire(build_text(anonymized_pages), sector, document.audit.company.siren_number)
     except Exception as exc:
         # Erreur inattendue : l'extraction ne doit pas rester « en cours ».
         extraction.status = StatutExtraction.A_VERIFIER
