@@ -12,5 +12,10 @@ from .metier.document import Document
 from .metier.extraction import Extraction
 from .metier.individual import Individual
 from .metier.industry import Industry
+from .metier.question import Question
+from .metier.questionnaire import Questionnaire
 
-__all__ = ['Audit', 'CeoInfo', 'City', 'CityPostalCode', 'Company', 'CompanyType', 'Document', 'Extraction', 'Individual', 'Industry']
+__all__ = [
+    'Audit', 'CeoInfo', 'City', 'CityPostalCode', 'Company', 'CompanyType', 'Document', 'Extraction',
+    'Individual', 'Industry', 'Question', 'Questionnaire',
+]

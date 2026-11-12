@@ -124,3 +124,39 @@ CREATE TABLE extraction(
    PRIMARY KEY(id),
    FOREIGN KEY(id_1) REFERENCES document(id)
 );
+
+CREATE TABLE questionnaire(
+   id SERIAL,
+   round_number INTEGER NOT NULL,
+   status VARCHAR(20)  NOT NULL,
+   analysis TEXT,
+   input_tokens INTEGER NOT NULL,
+   output_tokens INTEGER NOT NULL,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES audit(id)
+);
+
+CREATE TABLE question(
+   id SERIAL,
+   display_order INTEGER NOT NULL,
+   label TEXT NOT NULL,
+   rationale TEXT NOT NULL,
+   answer_type VARCHAR(20)  NOT NULL,
+   choices TEXT,
+   unit VARCHAR(20) ,
+   status VARCHAR(20)  NOT NULL,
+   answer TEXT,
+   id_1 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES questionnaire(id)
+);
+
+CREATE TABLE question_document(
+   id SERIAL,
+   id_1 INTEGER NOT NULL,
+   id_2 INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(id_1) REFERENCES document(id),
+   FOREIGN KEY(id_2) REFERENCES question(id)
+);

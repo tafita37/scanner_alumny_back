@@ -16,14 +16,12 @@ entreprise n'est pas une donnée personnelle (voir `anonymization`, qui ignore l
 Les montants, lignes, dates, SIRET, variables calculées et indicateurs sont renvoyés tels quels.
 Le texte libre (libellés de lignes, nom de chantier, produits...) n'est pas analysé.
 
-`read_audit_context` sert directement dans un workflow ; `make_audit_context_tool` l'expose en
-tool LangChain si un agent doit le lire lui-même.
+Le contexte est placé par le code dans le message initial de l'agent du questionnaire : l'agent
+en a toujours besoin, ce n'est donc pas un tool (il coûterait un appel au LLM de plus à chaque tour).
 """
 import copy
 import json
 import re
-
-from langchain_core.tools import BaseTool, tool
 
 from ..models import Audit
 from .anonymization import normalize_text
@@ -36,22 +34,6 @@ MASKED_VALUE = '[masqué]'
 PARTY_CONTACT_FIELDS = ('adresse', 'telephone', 'email')
 # (bloc de l'extraction, champ) : adresses hors des parties, retirées elles aussi
 ADDRESS_FIELDS = (('chantier', 'adresse'), ('livraison', 'adresse_livraison'), (None, 'lieu'))
-
-TOOL_NAME = 'lire_contexte_audit'
-TOOL_DESCRIPTION = (
-    "Lit le contexte de l'audit en cours. 'documents' : pour chaque document (devis, factures, "
-    "situations de travaux, propositions commerciales, bons de commande, fiches de prix de revient, "
-    "comptes annuels), sa dernière extraction, avec son statut ('ok' : fiable ; 'a_verifier' : "
-    "données incomplètes ou incohérentes, voir 'erreurs'), les données lues dans le document "
-    "('extraction') et les variables calculées ('variables'). 'documents_sans_extraction' liste "
-    "les documents jamais extraits. 'indicateurs' : indicateurs de l'audit calculés à partir des "
-    "seuls documents au statut 'ok' ('documents_pris_en_compte') ; un indicateur à null n'a pas pu "
-    "être calculé faute de données. Chiffre d'affaires, résultat net et effectif viennent des "
-    "comptes annuels, sinon des données publiées ('source' : 'comptes_annuels' ou 'api'). "
-    "Les montants sont en euros. Dans les documents commerciaux, les noms de l'émetteur et du "
-    "destinataire sont remplacés par des alias : ENTREPRISE_AUDITEE pour l'entreprise auditée, "
-    "PARTIE_1, PARTIE_2... pour ses clients et fournisseurs ; leurs coordonnées sont masquées."
-)
 
 
 def digits(value) -> str:
@@ -158,21 +140,3 @@ def read_audit_context(audit_id: int) -> dict:
         'documents_sans_extraction': [pk for pk in document_ids if pk not in latest],
         'indicateurs': compute_indicators(audit, latest),
     }
-
-
-def make_audit_context_tool(audit_id: int) -> BaseTool:
-    """
-    Tool `lire_contexte_audit` lié à un audit : l'identifiant est fixé ici, pas choisi par le
-    LLM, qui ne peut donc lire que le contexte de cet audit.
-    Exemple : `create_agent(model, tools=[make_audit_context_tool(audit.pk)])`.
-    """
-
-    @tool(TOOL_NAME, description=TOOL_DESCRIPTION)
-    def lire_contexte_audit() -> str:
-        try:
-            result = read_audit_context(audit_id)
-        except Audit.DoesNotExist:
-            result = {'erreur': f'Audit {audit_id} introuvable.'}
-        return json.dumps(result, ensure_ascii=False)
-
-    return lire_contexte_audit

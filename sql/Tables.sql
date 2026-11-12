@@ -124,3 +124,39 @@ CREATE TABLE extraction(
    PRIMARY KEY(id),
    FOREIGN KEY(document_id) REFERENCES document(id)
 );
+
+CREATE TABLE questionnaire(
+   id SERIAL,
+   round_number INTEGER NOT NULL,
+   status VARCHAR(20)  NOT NULL DEFAULT 'en_cours' CHECK (status IN ('en_cours', 'ok', 'erreur')),
+   analysis TEXT,
+   input_tokens INTEGER NOT NULL DEFAULT 0,
+   output_tokens INTEGER NOT NULL DEFAULT 0,
+   audit_id INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(audit_id) REFERENCES audit(id)
+);
+
+CREATE TABLE question(
+   id SERIAL,
+   display_order INTEGER NOT NULL,
+   label TEXT NOT NULL,
+   rationale TEXT NOT NULL,
+   answer_type VARCHAR(20)  NOT NULL CHECK (answer_type IN ('montant', 'pourcentage', 'nombre', 'date', 'oui_non', 'choix', 'texte')),
+   choices TEXT,
+   unit VARCHAR(20),
+   status VARCHAR(20)  NOT NULL DEFAULT 'en_attente' CHECK (status IN ('en_attente', 'repondue', 'ignoree')),
+   answer TEXT,
+   questionnaire_id INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(questionnaire_id) REFERENCES questionnaire(id)
+);
+
+CREATE TABLE question_document(
+   id SERIAL,
+   question_id INTEGER NOT NULL,
+   document_id INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   FOREIGN KEY(question_id) REFERENCES question(id),
+   FOREIGN KEY(document_id) REFERENCES document(id)
+);
