@@ -116,6 +116,7 @@ CREATE TABLE extraction(
    status VARCHAR(20)  NOT NULL CHECK (status IN ('en_cours', 'ok', 'a_verifier')),
    json_extraction TEXT,
    json_variables TEXT,
+   json_pages TEXT,
    errors TEXT,
    attempts INTEGER NOT NULL DEFAULT 0,
    document_id INTEGER NOT NULL,
