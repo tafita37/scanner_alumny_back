@@ -27,6 +27,10 @@ class Question(models.Model):
     de la réponse (champ de saisie du front) ; `choices` : options si `answer_type` = choix (JSON) ;
     `documents` : documents qui ont motivé la question (table d'association `question_document`) ;
     `answer` : la réponse (JSON : nombre, booléen, texte...).
+    `suggested_answer` : réponse proposée par le LLM quand les documents donnent déjà un indice
+    (même format JSON que `answer`), que l'utilisateur confirme ou corrige ; `suggested_answer_source`
+    dit d'où elle vient (document, page, passage). Les deux sont vides si le LLM n'a rien trouvé.
+    Une réponse différente de la proposition est une correction : la réalité diffère des documents.
     """
 
     display_order = models.IntegerField("ordre d'affichage")
@@ -43,6 +47,8 @@ class Question(models.Model):
         'statut', max_length=20, choices=StatutQuestion.choices, default=StatutQuestion.EN_ATTENTE
     )
     answer = models.TextField('réponse (JSON)', null=True, blank=True)
+    suggested_answer = models.TextField('réponse proposée (JSON)', null=True, blank=True)
+    suggested_answer_source = models.TextField('source de la réponse proposée', null=True, blank=True)
     questionnaire = models.ForeignKey(Questionnaire, on_delete=models.PROTECT, related_name='questions')
 
     class Meta:

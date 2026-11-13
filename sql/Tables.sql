@@ -148,6 +148,8 @@ CREATE TABLE question(
    unit VARCHAR(20),
    status VARCHAR(20)  NOT NULL DEFAULT 'en_attente' CHECK (status IN ('en_attente', 'repondue', 'ignoree')),
    answer TEXT,
+   suggested_answer TEXT,
+   suggested_answer_source TEXT,
    questionnaire_id INTEGER NOT NULL,
    PRIMARY KEY(id),
    FOREIGN KEY(questionnaire_id) REFERENCES questionnaire(id)

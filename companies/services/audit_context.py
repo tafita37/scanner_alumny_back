@@ -107,9 +107,13 @@ def mask_extraction(extraction: dict | None, errors: list,
 
 def read_audit_context(audit_id: int) -> dict:
     """
-    Contexte de l'audit, masqué pour être envoyé au LLM : dernière extraction de chaque document
-    (quel que soit son statut), documents jamais extraits et indicateurs (calculés à partir des
-    seules extractions « ok »).
+    Contexte de l'audit, masqué pour être envoyé au LLM : date de l'audit, données publiées,
+    dernière extraction de chaque document (quel que soit son statut), documents jamais extraits
+    et indicateurs (calculés à partir des seules extractions « ok »).
+    - `date_audit` situe les documents dans le temps (devis ancien, exercice clos depuis longtemps).
+    - `donnees_publiees` est toujours renvoyé, même quand les comptes annuels existent : dans les
+      indicateurs, ces chiffres ne servent qu'à défaut des comptes ; les avoir côte à côte permet
+      au LLM de repérer un écart entre ce qui est publié et ce que disent les comptes.
     Lève Audit.DoesNotExist si l'audit n'existe pas.
     """
     audit = Audit.objects.select_related('company__industry').get(pk=audit_id)
@@ -136,6 +140,13 @@ def read_audit_context(audit_id: int) -> dict:
     return {
         'audit_id': audit.pk,
         'secteur': audit.company.industry.name.upper(),
+        'date_audit': audit.audit_date.isoformat(),
+        'donnees_publiees': {
+            'annee': audit.publication_year,
+            'chiffre_affaires': audit.revenue,
+            'resultat_net': audit.profit,
+            'effectif': audit.head_count,
+        },
         'documents': documents,
         'documents_sans_extraction': [pk for pk in document_ids if pk not in latest],
         'indicateurs': compute_indicators(audit, latest),

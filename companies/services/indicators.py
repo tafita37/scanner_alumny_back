@@ -11,14 +11,18 @@ from ..models import Extraction
 from ..metier.extraction import StatutExtraction
 
 
-def latest_extractions(audit) -> dict:
+def latest_extractions(audit, with_pages: bool = False) -> dict:
     """
     Dernière extraction de chaque document de l'audit (quel que soit son statut), par id de document.
-    Le texte des pages (`json_pages`) n'est pas chargé : volumineux, il ne sert ni aux indicateurs
-    ni au contexte de l'audit.
+    `audit` : l'audit ou son identifiant.
+    Le texte des pages (`json_pages`) n'est chargé que si `with_pages` : volumineux, il ne sert ni
+    aux indicateurs ni au contexte de l'audit, seulement aux tools d'enquête de l'agent.
     """
+    extractions = Extraction.objects.filter(document__audit=audit).order_by('id')
+    if not with_pages:
+        extractions = extractions.defer('json_pages')
     latest = {}
-    for extraction in Extraction.objects.filter(document__audit=audit).defer('json_pages').order_by('id'):
+    for extraction in extractions:
         latest[extraction.document_id] = extraction  # la plus récente écrase les précédentes
     return latest
 
