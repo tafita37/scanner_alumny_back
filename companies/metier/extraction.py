@@ -16,6 +16,10 @@ class Extraction(models.Model):
     (`json_extraction`), variables retenues (`json_variables`), erreurs
     éventuelles, nombre de tentatives et tokens consommés (cumul de tous les
     appels au LLM : classification + chaque tentative d'extraction).
+    `json_pages` : texte du document vu par cette extraction, page par page
+    (`[{"number": 1, "text": "..."}, ...]`, Markdown de Docling, en clair) ; relu par les tools
+    de l'agent du questionnaire, qui l'anonymisent avant de l'envoyer au LLM. Pour des comptes
+    annuels natifs, seules les pages utiles ont été converties et sont donc présentes.
     """
 
     extraction_date = models.DateField("date d'extraction", default=timezone.localdate)
@@ -24,6 +28,7 @@ class Extraction(models.Model):
     )
     json_extraction = models.TextField('extraction (JSON)', null=True, blank=True)
     json_variables = models.TextField('variables (JSON)', null=True, blank=True)
+    json_pages = models.TextField('pages du document (JSON)', null=True, blank=True)
     errors = models.TextField('erreurs', null=True, blank=True)
     attempts = models.IntegerField('tentatives', default=0)
     input_tokens = models.IntegerField("tokens d'entrée", default=0)

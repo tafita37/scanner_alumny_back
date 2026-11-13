@@ -11,15 +11,31 @@ from ..models import Extraction
 from ..metier.extraction import StatutExtraction
 
 
-def compute_indicators(audit) -> dict:
+def latest_extractions(audit, with_pages: bool = False) -> dict:
+    """
+    Dernière extraction de chaque document de l'audit (quel que soit son statut), par id de document.
+    `audit` : l'audit ou son identifiant.
+    Le texte des pages (`json_pages`) n'est chargé que si `with_pages` : volumineux, il ne sert ni
+    aux indicateurs ni au contexte de l'audit, seulement aux tools d'enquête de l'agent.
+    """
+    extractions = Extraction.objects.filter(document__audit=audit).order_by('id')
+    if not with_pages:
+        extractions = extractions.defer('json_pages')
+    latest = {}
+    for extraction in extractions:
+        latest[extraction.document_id] = extraction  # la plus récente écrase les précédentes
+    return latest
+
+
+def compute_indicators(audit, latest: dict | None = None) -> dict:
     """
     Indicateurs de l'audit, calculés à partir de la dernière extraction de chacun de ses documents.
     Seules les extractions au statut « ok » sont prises en compte ; les autres sont comptées dans
     `documents_a_verifier`. Un document jamais extrait n'est pas compté.
+    `latest` : résultat de `latest_extractions(audit)` s'il a déjà été lu, pour ne pas le relire.
     """
-    latest = {}
-    for extraction in Extraction.objects.filter(document__audit=audit).order_by('id'):
-        latest[extraction.document_id] = extraction  # la plus récente écrase les précédentes
+    if latest is None:
+        latest = latest_extractions(audit)
     retained = [e for e in latest.values() if e.status == StatutExtraction.OK]
     indicators = calculer_indicateurs(
         audit.company.industry.name.upper(),

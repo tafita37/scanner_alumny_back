@@ -73,6 +73,8 @@ def structure_document(document, pages: list[dict], conversion_errors: list[str]
     `conversion_errors` (pages que Docling n'a pas pu lire) est placé en tête des erreurs, et
     l'extraction passe alors « à vérifier » : une donnée de ces pages peut manquer ou être
     fausse sans que l'agent le sache.
+    Les pages en clair sont enregistrées dans `json_pages` dès la création de l'extraction, même si
+    la structuration échoue ensuite : l'agent du questionnaire peut les relire.
     Lève StructuringError si le secteur de l'entreprise n'est pas pris en charge par l'agent.
     """
     sector = document.audit.company.industry.name.upper()
@@ -81,7 +83,10 @@ def structure_document(document, pages: list[dict], conversion_errors: list[str]
             f'Secteur « {document.audit.company.industry.name} » non pris en charge par l\'agent.'
         )
     anonymized_pages, mapping = anonymize_pages(pages)
-    extraction = Extraction.objects.create(document=document)
+    extraction = Extraction.objects.create(
+        document=document,
+        json_pages=to_json([{'number': page['number'], 'text': page['text']} for page in pages]),
+    )
     try:
         result = extraire(build_text(anonymized_pages), sector, document.audit.company.siren_number)
     except Exception as exc:

@@ -341,12 +341,14 @@ def propagate_tokens(text: str, mapping: PseudonymMapping) -> str:
     return ''.join(segments)
 
 
-def anonymize_pages(pages: list[dict]) -> tuple[list[dict], PseudonymMapping]:
+def anonymize_pages(pages: list[dict], mapping: PseudonymMapping | None = None) -> tuple[list[dict], PseudonymMapping]:
     """
     Anonymise le texte de chaque page extraite (même format que extract_pdf) avec une
     correspondance commune à tout le document. Renvoie les pages anonymisées et la correspondance.
+    `mapping` : correspondance à compléter, partagée par plusieurs appels (une même donnée garde
+    alors le même jeton dans tous les documents) ; une nouvelle par défaut.
     """
-    mapping = PseudonymMapping()
+    mapping = mapping if mapping is not None else PseudonymMapping()
     anonymized_pages = [{**page, 'text': anonymize_text(page['text'], mapping)} for page in pages]
     # Seconde passe, une fois toutes les pages analysées : une valeur détectée page 3 est aussi
     # remplacée page 1.
