@@ -1,12 +1,11 @@
-import os
 import re
 import unicodedata
 from functools import lru_cache
 
-from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
 from pydantic import ValidationError
+
+from fournisseur_llm import MODELE, avec_nouveaux_essais, modele
 
 from .calculs import CALCULS_PAR_TYPE, variables_comptes_annuels
 from .coherence import CONTROLES_PAR_TYPE
@@ -14,9 +13,8 @@ from .etat import EtatExtraction
 from .pages import pages_comptes_annuels
 from .prompts import PROMPT_CLASSIFICATION, PROMPTS_PAR_TYPE
 from .schemas import SCHEMAS_PAR_TYPE, Classification, ExtractionComptesAnnuels
-load_dotenv()
-MODELE = os.getenv("GROQ_MODELE")
-MAX_TENTATIVES = 1
+
+MAX_TENTATIVES = 3
 # Plafond de sortie : raisonnement du modèle + JSON produit
 MAX_TOKENS = 16384
 # Raisonnement "medium" là où il faut interpréter (rattacher les postes d'une liasse fiscale aux
@@ -43,19 +41,19 @@ MOTS_CLES_CATEGORIES = {
 
 @lru_cache
 def _llm(schema: type):
-    """Client Groq en mode strict, créé une seule fois par schéma de sortie."""
-    return ChatGroq(
-        model=MODELE,
-        temperature=0,
-        max_retries=2,
-        max_tokens=MAX_TOKENS,
-        reasoning_effort=EFFORT_RAISONNEMENT.get(schema, EFFORT_RAISONNEMENT_DEFAUT),
+    """
+    Client en mode strict, créé une seule fois par schéma de sortie (modèle : `fournisseur_llm`).
+    Une limite par minute atteinte est attendue puis l'appel relancé : elle ne consomme pas une
+    tentative d'extraction.
+    """
+    return avec_nouveaux_essais(modele(
+        EFFORT_RAISONNEMENT.get(schema, EFFORT_RAISONNEMENT_DEFAUT), MAX_TOKENS,
     ).with_structured_output(
         schema,
-        method="json_schema",  # Structured Outputs de Groq
+        method="json_schema",  # Structured Outputs
         strict=True,           # sortie forcément conforme au schéma
         include_raw=True,      # pour récupérer les tokens consommés
-    )
+    ))
 
 
 def _tokens(etat: EtatExtraction, reponse: dict) -> dict:
@@ -108,8 +106,9 @@ def extraction(etat: EtatExtraction) -> dict:
     messages = [SystemMessage(PROMPTS_PAR_TYPE[type_extraction]), HumanMessage(etat["texte"])]
 
     # À partir du 2e essai : erreurs relevées sur la dernière réponse validée. La réponse elle-même
-    # n'est pas renvoyée : ajoutée au texte du document, elle fait dépasser la limite de tokens par
-    # requête de Groq, et les erreurs citent déjà les champs et les valeurs fautives.
+    # n'est pas renvoyée : ajoutée au texte du document, elle doublerait presque la taille de la
+    # requête (limite de tokens par minute du fournisseur), et les erreurs citent déjà les champs et
+    # les valeurs fautives.
     if etat["erreurs_a_corriger"]:
         messages.append(HumanMessage(
             "Ta réponse précédente contenait ces erreurs. Relis le document et corrige-les :\n- "
