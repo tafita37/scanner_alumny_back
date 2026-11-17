@@ -1,9 +1,17 @@
+import json
+import math
+import re
+from datetime import date
+
 from rest_framework import serializers
 
+from .metier.question import StatutQuestion, TypeReponse
 from .models import Company, CompanyType, Individual, Industry
 
 SIREN_LENGTH = 9
 SIRET_LENGTH = 14
+MAX_TEXT_ANSWER_LENGTH = 5000
+ISO_DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 
 
 def validate_digits(value, length, label):
@@ -130,3 +138,63 @@ class DocumentUploadSerializer(serializers.Serializer):
         child=serializers.FileField(max_length=255, allow_empty_file=False),
         allow_empty=False,
     )
+
+
+def validate_answer(answer_type: str, value, choices: list[str]):
+    """
+    Réponse du dirigeant vérifiée selon le type de la question, au format enregistré dans
+    `Question.answer` : nombre pour montant, pourcentage et nombre ; "AAAA-MM-JJ" pour date ;
+    booléen pour oui_non ; une des options pour choix ; texte non vide sinon.
+    """
+    if answer_type in (TypeReponse.MONTANT, TypeReponse.POURCENTAGE, TypeReponse.NOMBRE):
+        # bool est un int en Python : true ne doit pas passer pour 1.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise serializers.ValidationError({'answer': 'Un nombre est attendu (ex. 340000.50).'})
+        return value
+    if answer_type == TypeReponse.DATE:
+        try:
+            if not isinstance(value, str) or not ISO_DATE.fullmatch(value):
+                raise ValueError
+            return date.fromisoformat(value).isoformat()
+        except ValueError:
+            raise serializers.ValidationError({'answer': 'Une date au format AAAA-MM-JJ est attendue.'}) from None
+    if answer_type == TypeReponse.OUI_NON:
+        if not isinstance(value, bool):
+            raise serializers.ValidationError({'answer': 'true ou false est attendu.'})
+        return value
+    if answer_type == TypeReponse.CHOIX:
+        if value not in choices:
+            raise serializers.ValidationError({'answer': f"Une des options est attendue : {', '.join(choices)}."})
+        return value
+    if not isinstance(value, str) or not value.strip():
+        raise serializers.ValidationError({'answer': 'Un texte non vide est attendu.'})
+    if len(value) > MAX_TEXT_ANSWER_LENGTH:
+        raise serializers.ValidationError({'answer': f'{MAX_TEXT_ANSWER_LENGTH} caractères au maximum.'})
+    return value.strip()
+
+
+class QuestionAnswerSerializer(serializers.Serializer):
+    """
+    Body de la réponse à une question du questionnaire adaptatif. La question (son type et ses
+    options) est passée dans le contexte : {'question': question}.
+    - status = repondue : `answer` obligatoire, du type de la question ;
+    - status = ignoree ou en_attente : pas de `answer` (la réponse enregistrée est effacée).
+    """
+
+    status = serializers.ChoiceField(choices=StatutQuestion.choices)
+    answer = serializers.JSONField(required=False, allow_null=True)
+
+    def validate(self, data):
+        question = self.context['question']
+        answer = data.get('answer')
+        if data['status'] != StatutQuestion.REPONDUE:
+            if answer is not None:
+                raise serializers.ValidationError(
+                    {'answer': 'Pas de réponse pour une question ignorée ou remise en attente.'}
+                )
+            return data
+        if answer is None:
+            raise serializers.ValidationError({'answer': 'Obligatoire pour une question répondue.'})
+        choices = json.loads(question.choices) if question.choices else []
+        data['answer'] = validate_answer(question.answer_type, answer, choices)
+        return data

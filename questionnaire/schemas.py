@@ -1,6 +1,6 @@
 """Schéma de sortie de la rédaction : les questions d'un tour, mises au format par le LLM.
 
-Compatible avec le mode strict de Groq (Structured Outputs), comme `structuration.schemas` :
+Compatible avec le mode strict des Structured Outputs, comme `structuration.schemas` :
 - extra="forbid" -> "additionalProperties": false
 - aucun champ n'a de valeur par défaut -> tous les champs sont "required"
 - une valeur absente est représentée par null (type X | None)

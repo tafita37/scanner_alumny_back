@@ -1,23 +1,32 @@
 """
 Nœuds du graphe du questionnaire : enquête (agent), rédaction (LLM sans tools), validation (code).
 
-Pourquoi deux appels distincts plutôt qu'un agent qui rend directement le JSON : sur Groq, un même
-appel ne peut pas à la fois proposer des tools et imposer un format JSON strict (« json mode cannot
-be combined with tool/function calling »), et le tool de sortie de `ToolStrategy` est mal appelé par
-gpt-oss (nom de tool déformé, requête rejetée). L'agent enquête donc librement et conclut en texte ;
-la rédaction met ses conclusions au format strict, comme l'extraction des documents.
+Pourquoi deux appels distincts plutôt qu'un agent qui rend directement le JSON : constaté sur Groq,
+un même appel ne pouvait pas à la fois proposer des tools et imposer un format JSON strict (« json
+mode cannot be combined with tool/function calling »), et le tool de sortie de `ToolStrategy` était
+mal appelé par gpt-oss (nom de tool déformé, requête rejetée). L'agent enquête donc librement et
+conclut en texte ; la rédaction met ses conclusions au format strict, comme l'extraction des
+documents. Cette séparation ne dépend d'aucun fournisseur.
+
+Modèle et nouveaux essais (limite par minute atteinte...) : voir `fournisseur_llm`, commun avec
+l'extraction des documents.
 """
-import os
 from functools import lru_cache
 
-import groq
-from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware, wrap_model_call
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
-from langchain_groq import ChatGroq
 from pydantic import ValidationError
+
+from fournisseur_llm import (
+    ATTENTE_INITIALE,
+    ATTENTE_MAX,
+    MAX_NOUVEAUX_ESSAIS,
+    avec_nouveaux_essais,
+    erreur_passagere,
+    modele,
+)
 
 from .etat import EtatQuestionnaire
 from .limites import MAX_APPELS_ENQUETE, MAX_ESSAIS_REDACTION
@@ -32,20 +41,11 @@ from .prompts import (
 from .schemas import QuestionsGenerees
 from .validation import valider_questions
 
-load_dotenv()
-MODELE = os.getenv("GROQ_MODELE")
 # Plafond de sortie d'un appel : raisonnement du modèle + texte ou JSON produit
 MAX_TOKENS = 8192
 # L'enquête demande du jugement (quelles pistes, quoi vérifier) ; la rédaction recopie.
 EFFORT_ENQUETE = "medium"
 EFFORT_REDACTION = "low"
-# Nouveaux essais d'un appel de l'enquête rejeté par Groq parce que le modèle a mal formé un appel
-# de tool (« tool_use_failed ») : erreur passagère de gpt-oss, la même requête passe en général.
-MAX_NOUVEAUX_ESSAIS_TOOL = 2
-
-
-def appel_de_tool_rejete(erreur: Exception) -> bool:
-    return isinstance(erreur, groq.BadRequestError) and "tool_use_failed" in str(erreur)
 
 
 @wrap_model_call
@@ -60,18 +60,14 @@ def conclusions_au_dernier_appel(request, handler):
     return handler(request)
 
 
-def _modele(effort: str) -> ChatGroq:
-    return ChatGroq(model=MODELE, temperature=0, max_retries=2, max_tokens=MAX_TOKENS, reasoning_effort=effort)
-
-
 @lru_cache
 def _llm_redaction():
-    return _modele(EFFORT_REDACTION).with_structured_output(
+    return avec_nouveaux_essais(modele(EFFORT_REDACTION, MAX_TOKENS).with_structured_output(
         QuestionsGenerees,
-        method="json_schema",  # Structured Outputs de Groq
+        method="json_schema",  # Structured Outputs
         strict=True,           # sortie forcément conforme au schéma
         include_raw=True,      # pour récupérer les tokens consommés
-    )
+    ))
 
 
 def _secteur(etat: EtatQuestionnaire) -> str:
@@ -81,13 +77,13 @@ def _secteur(etat: EtatQuestionnaire) -> str:
 # 1. Enquête : l'agent lit le contexte, cherche dans les documents, calcule et conclut en texte
 def enquete(etat: EtatQuestionnaire, outils: list[BaseTool]) -> dict:
     agent = create_agent(
-        _modele(EFFORT_ENQUETE),
+        modele(EFFORT_ENQUETE, MAX_TOKENS),
         outils,
         system_prompt=prompt_enquete(_secteur(etat)),
         middleware=[
             conclusions_au_dernier_appel,
-            ModelRetryMiddleware(max_retries=MAX_NOUVEAUX_ESSAIS_TOOL, retry_on=appel_de_tool_rejete,
-                                 on_failure="error", initial_delay=0.5),
+            ModelRetryMiddleware(max_retries=MAX_NOUVEAUX_ESSAIS, retry_on=erreur_passagere, on_failure="error",
+                                 initial_delay=ATTENTE_INITIALE, backoff_factor=2, max_delay=ATTENTE_MAX),
         ],
     )
     initial = HumanMessage(message_initial(etat["contexte"], etat["questions_precedentes"]))

@@ -24,11 +24,14 @@ import json
 import re
 
 from ..models import Audit
-from .anonymization import normalize_text
+from .anonymization import normalize_text, value_regex
 from .indicators import compute_indicators, latest_extractions
 
 AUDITED_COMPANY_ALIAS = 'ENTREPRISE_AUDITEE'
 PARTY_ALIAS_FORMAT = 'PARTIE_{number}'
+ALIAS_PATTERN = re.compile(rf'\b(?:{AUDITED_COMPANY_ALIAS}|PARTIE_\d+)\b')
+# Alias dans un texte écrit par le LLM, qui remplace parfois le « _ » par une espace (« PARTIE 1 »)
+WRITTEN_ALIAS_PATTERN = re.compile(r'\b(?:ENTREPRISE[_ ]AUDITEE|PARTIE[_ ]\d+)\b')
 MASKED_VALUE = '[masqué]'
 # Coordonnées d'une partie (émetteur, destinataire) retirées de l'extraction
 PARTY_CONTACT_FIELDS = ('adresse', 'telephone', 'email')
@@ -45,22 +48,65 @@ class PartyAliases:
     Alias des parties d'un audit : la même partie (même nom, casse et accents ignorés) reçoit le
     même alias dans tous les documents. L'entreprise auditée est reconnue à son SIREN (début du
     SIRET) ou à sa raison sociale.
+    Garde aussi les noms d'origine de chaque alias, pour les deux sens :
+    - `restore` remet les noms dans la sortie du LLM (le dirigeant ne sait pas qui est PARTIE_1) ;
+    - `mask` remet les alias dans un texte enregistré avant de le renvoyer au LLM (questions des
+      tours précédents).
+    Comme `PseudonymMapping`, contient des noms en clair : à garder en mémoire le temps de la requête.
     """
 
     def __init__(self, siren: str, company_name: str):
         self.siren = digits(siren)
         self.company_name = normalize_text(company_name or '')
         self.aliases = {}  # nom normalisé -> alias
+        # alias -> noms d'origine rencontrés (le premier sert à `restore`)
+        self.names = {AUDITED_COMPANY_ALIAS: [company_name.strip()]} if company_name and company_name.strip() else {}
 
     def alias_for(self, name: str | None, siret: str | None = None) -> str | None:
         if not name:
             return None
         key = normalize_text(name)
         if (len(self.siren) == 9 and digits(siret).startswith(self.siren)) or key == self.company_name:
-            return AUDITED_COMPANY_ALIAS
-        if key not in self.aliases:
-            self.aliases[key] = PARTY_ALIAS_FORMAT.format(number=len(self.aliases) + 1)
-        return self.aliases[key]
+            alias = AUDITED_COMPANY_ALIAS
+        else:
+            if key not in self.aliases:
+                self.aliases[key] = PARTY_ALIAS_FORMAT.format(number=len(self.aliases) + 1)
+            alias = self.aliases[key]
+        names = self.names.setdefault(alias, [])
+        if name.strip() not in names:
+            names.append(name.strip())
+        return alias
+
+    def restore(self, value):
+        """
+        Remet le nom d'origine à la place de chaque alias dans une valeur JSON (texte, liste,
+        dictionnaire), comme `deanonymize` pour les jetons. Un alias inconnu reste tel quel.
+        « PARTIE 1 » (espace au lieu du « _ ») est reconnu comme PARTIE_1.
+        """
+        if isinstance(value, str):
+            return WRITTEN_ALIAS_PATTERN.sub(
+                lambda match: (self.names.get(match.group(0).replace(' ', '_')) or [match.group(0)])[0], value
+            )
+        if isinstance(value, list):
+            return [self.restore(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self.restore(item) for key, item in value.items()}
+        return value
+
+    def mask(self, text: str) -> str:
+        """
+        Remet l'alias à la place de chaque nom de partie connu dans le texte (casse, accents et
+        espaces ignorés ; noms les plus longs d'abord, pour qu'un nom contenu dans un autre ne
+        coupe pas ce dernier).
+        """
+        names = sorted(
+            ((name, alias) for alias, names in self.names.items() for name in names if normalize_text(name)),
+            key=lambda item: len(item[0]), reverse=True,
+        )
+        for name, alias in names:
+            pattern = re.compile(rf'(?<!\w){value_regex(normalize_text(name))}(?!\w)', re.IGNORECASE)
+            text = pattern.sub(alias, text)
+        return text
 
 
 def mask_extraction(extraction: dict | None, errors: list,
@@ -116,6 +162,15 @@ def read_audit_context(audit_id: int) -> dict:
       au LLM de repérer un écart entre ce qui est publié et ce que disent les comptes.
     Lève Audit.DoesNotExist si l'audit n'existe pas.
     """
+    return read_audit_context_with_aliases(audit_id)[0]
+
+
+def read_audit_context_with_aliases(audit_id: int) -> tuple[dict, PartyAliases]:
+    """
+    Comme `read_audit_context`, avec les alias des parties attribués en le construisant : ils
+    servent à remettre les noms dans la sortie du LLM (`restore`) et à masquer les questions des
+    tours précédents (`mask`).
+    """
     audit = Audit.objects.select_related('company__industry').get(pk=audit_id)
     latest = latest_extractions(audit)
     document_ids = list(audit.documents.order_by('id').values_list('id', flat=True))
@@ -137,7 +192,7 @@ def read_audit_context(audit_id: int) -> dict:
             'extraction': data,
             'variables': json.loads(extraction.json_variables) if extraction.json_variables else None,
         })
-    return {
+    context = {
         'audit_id': audit.pk,
         'secteur': audit.company.industry.name.upper(),
         'date_audit': audit.audit_date.isoformat(),
@@ -151,3 +206,4 @@ def read_audit_context(audit_id: int) -> dict:
         'documents_sans_extraction': [pk for pk in document_ids if pk not in latest],
         'indicateurs': compute_indicators(audit, latest),
     }
+    return context, aliases

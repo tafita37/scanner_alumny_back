@@ -1,6 +1,6 @@
 """Schémas de sortie du LLM, un par secteur.
 
-Compatibles avec le mode strict de Groq (Structured Outputs) :
+Compatibles avec le mode strict des Structured Outputs (Cerebras, voir `fournisseur_llm`) :
 - extra="forbid"  -> "additionalProperties": false dans le JSON Schema
 - aucun champ n'a de valeur par défaut -> tous les champs sont "required"
 - une valeur absente est représentée par null (type X | None)
