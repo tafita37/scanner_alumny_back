@@ -164,3 +164,19 @@ CREATE TABLE question_document(
    FOREIGN KEY(question_id) REFERENCES question(id),
    FOREIGN KEY(document_id) REFERENCES document(id)
 );
+
+CREATE TABLE report(
+   id SERIAL,
+   status VARCHAR(20)  NOT NULL DEFAULT 'en_cours' CHECK (status IN ('en_cours', 'ok', 'erreur')),
+   content TEXT,
+   stored_name VARCHAR(255) ,
+   page_count INTEGER,
+   errors TEXT,
+   input_tokens INTEGER NOT NULL DEFAULT 0,
+   output_tokens INTEGER NOT NULL DEFAULT 0,
+   generated_at TIMESTAMP,
+   audit_id INTEGER NOT NULL,
+   PRIMARY KEY(id),
+   UNIQUE(audit_id),
+   FOREIGN KEY(audit_id) REFERENCES audit(id)
+);

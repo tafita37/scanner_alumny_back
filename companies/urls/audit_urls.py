@@ -1,6 +1,8 @@
 from django.urls import path
 
-from ..controllers import audit_controller, cockpit_controller, document_controller, questionnaire_controller
+from ..controllers import (
+    audit_controller, cockpit_controller, document_controller, questionnaire_controller, report_controller,
+)
 
 # Préfixe : audits/
 urlpatterns = [
@@ -23,4 +25,7 @@ urlpatterns = [
         name='audit-questionnaires-generate',
     ),
     path('<int:audit_id>/cockpit/', cockpit_controller.get_cockpit, name='audit-cockpit'),
+    path('<int:audit_id>/report/', report_controller.get_report, name='audit-report'),
+    path('<int:audit_id>/report/generate/', report_controller.generate_audit_report, name='audit-report-generate'),
+    path('<int:audit_id>/report/pdf/', report_controller.download_report_pdf, name='audit-report-pdf'),
 ]
