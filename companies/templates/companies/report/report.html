@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Audit de performance opérationnelle — {{ company.name }}</title>
+  <meta name="author" content="Alumny">
+</head>
+<body>
+
+{# ------------------------------------------------------------------ 1. Couverture #}
+<section class="cover">
+  <div class="cover-circle cover-circle-1"></div>
+  <div class="cover-circle cover-circle-2"></div>
+  <div class="cover-brand">ALUMNY</div>
+  <div class="cover-body">
+    <p class="cover-kicker">Rapport d'audit</p>
+    <h1 class="cover-title">Audit de performance<br>opérationnelle</h1>
+    <div class="cover-rule"></div>
+    <p class="cover-company">{{ company.name }}</p>
+    <p class="cover-meta">Secteur {{ company.sector }} · {{ company.city }} · {{ audit_date }}</p>
+
+    <div class="cover-figure">
+      <span class="cover-figure-label">Perte annuelle estimée</span>
+      {% if loss.value %}
+        <span class="cover-figure-value">{{ loss.value }}</span>
+        {% if loss.partial %}<span class="cover-figure-note">estimation partielle : certaines pertes ne sont pas encore chiffrées</span>{% endif %}
+      {% else %}
+        <span class="cover-figure-value cover-figure-empty">Non chiffrée à ce stade</span>
+        <span class="cover-figure-note">voir les limites de l'analyse</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="cover-foot">
+    <span>Document confidentiel, établi pour {{ company.name }}</span>
+    <span>Édité le {{ generated_on }}</span>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ 2. Synthèse exécutive #}
+<section class="page">
+  <div class="running-company">{{ company.name }}</div>
+  <header class="section-head"><span class="section-num">01</span><h1>Synthèse exécutive</h1></header>
+  <div class="summary">
+    {% for paragraphe in content.synthese_executive %}<p>{{ paragraphe }}</p>{% endfor %}
+  </div>
+
+  <div class="kpis">
+    <div class="kpi kpi-main">
+      <span class="kpi-label">Perte annuelle estimée</span>
+      <span class="kpi-value">{{ loss.value|default:"Non chiffrée" }}</span>
+      {% if loss.value and loss.partial %}<span class="kpi-note">estimation partielle</span>{% endif %}
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Pertes chiffrées</span>
+      <span class="kpi-value">{{ loss.measured }} / {{ loss.components|length }}</span>
+      <span class="kpi-note">composantes de la perte</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Documents analysés</span>
+      <span class="kpi-value">{{ documents_count }}</span>
+      <span class="kpi-note">{{ questions.total }} réponse{{ questions.total|pluralize }} au questionnaire</span>
+    </div>
+  </div>
+
+  <div class="keypoints">
+    <h2>Points clés</h2>
+    <ul>{% for point in content.points_cles %}<li>{{ point }}</li>{% endfor %}</ul>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ 3. Contexte #}
+<section class="page">
+  <header class="section-head"><span class="section-num">02</span><h1>Contexte de l'entreprise</h1></header>
+  <p class="intro">Les informations ci-dessous situent votre entreprise et le périmètre de l'audit. Elles proviennent
+    des registres publics et des documents que vous nous avez transmis.</p>
+
+  <div class="columns">
+    <div class="card">
+      <h2>Identité</h2>
+      <table class="facts">
+        <tr><th>Raison sociale</th><td>{{ company.name }}</td></tr>
+        <tr><th>SIREN</th><td>{{ company.siren }}</td></tr>
+        <tr><th>SIRET audité</th><td>{{ company.siret }}</td></tr>
+        <tr><th>Forme juridique</th><td>{{ company.legal_form }}</td></tr>
+        <tr><th>Code NAF</th><td>{{ company.naf }}</td></tr>
+        <tr><th>Secteur</th><td>{{ company.sector }}</td></tr>
+        <tr><th>Commune</th><td>{{ company.city }}</td></tr>
+        <tr><th>Création</th><td>{{ company.creation_date }}</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Chiffres clés</h2>
+      <table class="facts">
+        {% for ligne in financials %}
+          <tr><th>{{ ligne.label }}</th><td>{{ ligne.value }}{% if ligne.source %}<span class="fact-source">{{ ligne.source }}</span>{% endif %}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="card card-soft">
+    <h2>Périmètre de l'audit</h2>
+    <table class="facts">
+      <tr><th>Date de l'audit</th><td>{{ audit_date }}</td></tr>
+      <tr><th>Documents analysés</th><td>{{ documents_count }}</td></tr>
+      <tr><th>Comptes annuels</th><td>{% if annual_accounts_closing %}exercice clos le {{ annual_accounts_closing }}{% else %}non fournis{% endif %}</td></tr>
+      <tr><th>Questionnaire</th><td>{{ questions.total }} question{{ questions.total|pluralize }} traitée{{ questions.total|pluralize }} avec vous</td></tr>
+    </table>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ 4. Méthodologie #}
+<section class="page">
+  <header class="section-head"><span class="section-num">03</span><h1>Méthodologie et limites</h1></header>
+  <p class="intro">L'audit suit quatre étapes. Les montants sont calculés par des formules propres à votre secteur,
+    jamais estimés par l'intelligence artificielle, qui intervient pour lire les documents, cibler les questions et
+    rédiger ce rapport.</p>
+
+  <ol class="method">
+    <li><b>Lecture des documents</b><span>Vos documents (comptes annuels, devis, factures, bons de commande…) sont lus
+      automatiquement ; les données personnelles sont masquées avant tout traitement.</span></li>
+    <li><b>Questionnaire adaptatif</b><span>Des questions ciblées complètent ou corrigent ce que disent les documents :
+      votre réalité prime sur les documents.</span></li>
+    <li><b>Moteur de calcul sectoriel</b><span>Les indicateurs et les pertes sont calculés par des formules déterministes,
+      propres au secteur {{ company.sector }}, à partir des seules données retenues.</span></li>
+    <li><b>Recommandations</b><span>Les constats sont traduits en trois leviers d'optimisation, réalisables sous 30 jours.</span></li>
+  </ol>
+
+  <h2>Sources des données</h2>
+  <p class="sources">
+    <span class="chip">Comptes annuels</span><span class="chip">Données publiées</span>
+    <span class="chip">Vos documents</span><span class="chip">Vos réponses</span><span class="chip">Référence sectorielle</span>
+  </p>
+
+  <h2>Limites de l'analyse</h2>
+  <ul class="limits">{% for limite in limits %}<li>{{ limite }}</li>{% endfor %}</ul>
+</section>
+
+{# ------------------------------------------------------------------ 5. Perte annuelle #}
+<section class="page">
+  <header class="section-head"><span class="section-num">04</span><h1>Perte annuelle estimée</h1></header>
+
+  <div class="hero">
+    <div class="hero-main">
+      <span class="hero-label">Perte sèche annuelle estimée</span>
+      <span class="hero-value">{{ loss.value|default:"Non chiffrée à ce stade" }}</span>
+      {% if loss.value and loss.partial %}<span class="badge badge-warn">Estimation partielle : {{ loss.measured }} composante{{ loss.measured|pluralize }} chiffrée{{ loss.measured|pluralize }} sur {{ loss.components|length }}</span>{% endif %}
+    </div>
+    {% if score_svg %}<div class="hero-gauge"><span class="hero-label">Score de santé</span>{{ score_svg|safe }}</div>{% endif %}
+  </div>
+
+  <h2>Composantes de la perte</h2>
+  <div class="bars">
+    {% for c in loss.components %}
+      <div class="bar-row">
+        <span class="bar-label">{{ c.label }}</span>
+        <span class="bar-track">
+          {% if c.value %}<span class="bar-fill" style="width: {{ c.width }}%"></span>
+          {% else %}<span class="bar-empty">{{ c.status }}</span>{% endif %}
+        </span>
+        <span class="bar-value">{{ c.value|default:"—" }}</span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="comment">
+    <h2>Notre lecture</h2>
+    <p>{{ content.commentaire_perte }}</p>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ 6. Indicateurs #}
+<section class="page">
+  <header class="section-head"><span class="section-num">05</span><h1>Indicateurs clés</h1></header>
+  {% for i in indicators %}
+    <div class="indicator{% if i.pivot %} is-pivot{% endif %}">
+      <div class="indicator-head">
+        <span class="indicator-name">{{ i.name }}{% if i.pivot %} <span class="badge badge-gold">indicateur pivot</span>{% endif %}</span>
+        <span class="indicator-value">{% if i.value %}{{ i.value }}{% else %}<span class="badge badge-{{ i.tone }}">{{ i.status }}</span>{% endif %}</span>
+      </div>
+      <p class="formula">{{ i.formula }}</p>
+      {% if i.comparison %}<p class="small">Repère : {{ i.comparison }}</p>{% endif %}
+      {% if i.missing %}<p class="small">Il manque : {{ i.missing|join:", " }}.</p>{% endif %}
+      {% if i.comment %}<p class="indicator-comment">{{ i.comment }}</p>{% endif %}
+    </div>
+  {% endfor %}
+</section>
+
+{# ------------------------------------------------------------------ 7. Données retenues et limites #}
+<section class="page">
+  <header class="section-head"><span class="section-num">06</span><h1>Données retenues</h1></header>
+  <table class="grid entries">
+    <thead><tr><th>Donnée</th><th>Valeur</th><th>Source</th><th>Précision</th></tr></thead>
+    <tbody>
+      {% for e in entries %}
+        <tr>
+          <td>{{ e.label }}</td>
+          <td class="num">{% if e.value %}{{ e.value }}{% else %}<span class="badge badge-{{ e.tone }}">{{ e.status }}</span>{% endif %}</td>
+          <td>{{ e.source|default:"—" }}</td>
+          <td class="small">{{ e.detail|default:"" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if steps %}
+    <h2>Étapes de calcul</h2>
+    <ul class="steps">{% for s in steps %}<li><b>{{ s.label }}</b> : {{ s.equation }} = <b>{{ s.result }}</b></li>{% endfor %}</ul>
+  {% endif %}
+
+  <h2>Contrôles de l'audit</h2>
+  <ul class="controls">
+    {% for controle in controls %}<li class="{% if controle.ok %}is-ok{% else %}is-warn{% endif %}">{{ controle.text }}</li>{% endfor %}
+  </ul>
+</section>
+
+{# ------------------------------------------------------------------ 8. Réponses du dirigeant #}
+<section class="page">
+  <header class="section-head"><span class="section-num">07</span><h1>Ce que vous nous avez dit</h1></header>
+  <p class="intro">Vos réponses au questionnaire ont complété ou corrigé les documents. Celles marquées
+    <span class="badge badge-blue">calcul</span> alimentent directement le moteur de calcul.</p>
+  {% if questions.shown %}
+    <table class="grid qa">
+      <thead><tr><th>Question</th><th>Votre réponse</th></tr></thead>
+      <tbody>
+        {% for q in questions.shown %}
+          <tr>
+            <td>{{ q.label }}{% if q.engine %} <span class="badge badge-blue">calcul</span>{% endif %}</td>
+            <td class="{% if q.ignored %}muted{% endif %}">{{ q.answer }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if questions.others %}<p class="small">Et {{ questions.others }} autre{{ questions.others|pluralize }} réponse{{ questions.others|pluralize }} prise{{ questions.others|pluralize }} en compte dans l'analyse.</p>{% endif %}
+  {% else %}
+    <p>Les documents transmis ont suffi : aucune question complémentaire n'a été nécessaire.</p>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ 9-11. Leviers #}
+{% for levier in content.leviers %}
+<section class="page lever">
+  <header class="section-head">
+    <span class="section-num">08</span>
+    <h1>Levier {{ forloop.counter }} sur {{ content.leviers|length }} · à mettre en place sous 30 jours</h1>
+  </header>
+  <div class="lever-title"><span class="lever-num">{{ forloop.counter }}</span><h2>{{ levier.titre }}</h2></div>
+
+  <div class="lever-block">
+    <h3>Ce que l'audit a montré</h3>
+    <p>{{ levier.constat }}</p>
+  </div>
+
+  <div class="lever-block">
+    <h3>Les actions à mener</h3>
+    <ol class="actions">{% for action in levier.actions %}<li>{{ action }}</li>{% endfor %}</ol>
+  </div>
+
+  <div class="lever-split">
+    <div class="lever-box lever-gain"><h3>Gain attendu</h3><p>{{ levier.gain_attendu }}</p></div>
+    <div class="lever-box lever-track"><h3>Comment le mesurer à 30 jours</h3><p>{{ levier.indicateur_suivi }}</p></div>
+  </div>
+</section>
+{% endfor %}
+
+{# ------------------------------------------------------------------ 12. Appel à l'action #}
+<section class="cta">
+  <div class="cover-circle cover-circle-1"></div>
+  <div class="cover-brand">ALUMNY</div>
+  <div class="cta-body">
+    <p class="cover-kicker">Prochaine étape</p>
+    <h1 class="cta-title">Transformons ce diagnostic<br>en résultats</h1>
+    <div class="cover-rule"></div>
+    <p class="cta-text">{{ content.message_conclusion }}</p>
+    <ul class="cta-list">
+      <li>Prioriser les trois leviers et fixer qui fait quoi</li>
+      <li>Chiffrer les pertes qui ne le sont pas encore</li>
+      <li>Suivre les résultats à 30 jours</li>
+    </ul>
+    <a class="cta-button" href="{{ calendly_url }}">Réserver mon bilan stratégique</a>
+    <p class="cta-link">{{ calendly_url }}</p>
+  </div>
+  <div class="cover-foot"><span>Alumny · Audit de performance opérationnelle</span><span>{{ company.name }}</span></div>
+</section>
+
+</body>
+</html>

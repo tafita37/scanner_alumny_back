@@ -168,6 +168,10 @@ STATIC_URL = 'static/'
 # Fichiers uploadés (documents d'audit), stockés sous un nom unique (uuid)
 UPLOAD_DIR = Path(os.getenv('UPLOAD_DIR', BASE_DIR / 'upload_files'))
 
+# Lien Calendly de l'appel à l'action du rapport PDF (réservation d'un bilan stratégique) : obligatoire
+# pour générer un rapport.
+CALENDLY_URL = os.getenv('CALENDLY_URL', '').strip()
+
 # Modèles de Docling téléchargés à l'avance (docling-tools models download). Non renseigné :
 # Docling les télécharge lui-même à la première extraction.
 DOCLING_ARTIFACTS_PATH = os.getenv('DOCLING_ARTIFACTS_PATH')
