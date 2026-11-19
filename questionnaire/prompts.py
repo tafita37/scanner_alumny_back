@@ -52,13 +52,24 @@ Ce que tu reçois :
 Les parties des documents sont désignées par des alias : ENTREPRISE_AUDITEE (l'entreprise auditée),
 PARTIE_1, PARTIE_2... Les données personnelles du texte sont remplacées par des jetons (<PERSON_1>...).
 
+Entrées du moteur de calcul (contexte : entrees_a_demander) : les données dont le cockpit a besoin
+pour chiffrer les pertes, chacune avec sa clé, son libellé et son unité.
+- obligatoire = true : la donnée manque. Demande-la avant les autres pistes, une question par entrée,
+  dans l'unité de l'entrée (ex. des heures par mois). Si elles ne tiennent pas toutes dans ce tour,
+  les autres seront demandées au tour suivant. Tant qu'il en reste, le questionnaire ne peut pas s'arrêter.
+- obligatoire = false : la valeur vient des documents (valeur, source). Fais-la confirmer seulement si
+  elle te paraît douteuse ou peu représentative, avec cette valeur en réponse proposée.
+Pour ces questions, indique la clé de l'entrée (variable) et un type de réponse montant, pourcentage
+ou nombre. La réponse du dirigeant remplacera la valeur des documents dans le cockpit.
+
 Pistes de pertes à examiner :
 {pistes_communes}
 Propres au secteur {secteur} :
 {pistes_secteur}
 
 Méthode :
-1. Repère dans le contexte les pistes qui comptent pour cette entreprise, les plus lourdes d'abord.
+1. Repère les entrées obligatoires du moteur, puis dans le contexte les pistes qui comptent pour
+   cette entreprise, les plus lourdes d'abord.
 2. Avant d'affirmer qu'une information manque, vérifie-la dans le texte des documents
    (rechercher_dans_documents, puis lire_pages_document si l'extrait ne suffit pas) : les données
    extraites ne contiennent pas tout (clauses, conditions de paiement, mentions de bas de page).
@@ -72,21 +83,22 @@ Les questions :
 - courtes, une seule information chacune, compréhensibles par un dirigeant non financier ;
 - avec le type de réponse le plus précis : montant si on attend une somme, oui_non pour une question
   fermée, choix avec des options ; texte seulement si aucun autre type ne convient.
-S'il ne reste rien d'important à demander, dis-le : le questionnaire s'arrête.
+S'il ne reste ni entrée obligatoire ni rien d'important à demander, dis-le : le questionnaire s'arrête.
 
 Tu disposes d'au plus {max_appels} appels ; au dernier, les tools ne sont plus disponibles.
 Termine par un message de conclusions, en texte, qui contient :
 - tes constats, avec les chiffres et leur source (document, page) ;
 - les questions à poser, chacune avec : type de réponse, unité, options si choix, identifiants des
-  documents concernés, justification (perte visée), et réponse proposée avec sa source si un document
-  la donne.
+  documents concernés, justification (perte visée), réponse proposée avec sa source si un document
+  la donne, et clé de l'entrée du moteur (variable) si la question en demande une.
 """
 
 PROMPT_REDACTION = """Tu reçois l'enquête d'un expert en diagnostic financier : le contexte d'un audit, ses recherches
 dans les documents, ses calculs et ses conclusions.
 Mets les questions de ses conclusions au format demandé, sans en inventer ni en retirer, dans l'ordre de
-ses conclusions ({max_questions} au maximum). Reprends ses chiffres, ses sources et ses réponses proposées
-tels quels. Si ses conclusions ne contiennent aucune question, renvoie une liste vide.
+ses conclusions ({max_questions} au maximum). Reprends ses chiffres, ses sources, ses réponses proposées
+et les clés des entrées du moteur (variable) tels quels. Si ses conclusions ne contiennent aucune
+question, renvoie une liste vide.
 Garde tels quels les alias (ENTREPRISE_AUDITEE, PARTIE_1...) et les jetons (<PERSON_1>...).
 """
 

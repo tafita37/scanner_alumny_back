@@ -9,10 +9,15 @@ Erreurs (renvoyées au LLM pour un nouvel essai de la rédaction) :
 - document qui n'appartient pas à l'audit ;
 - type choix sans au moins deux options ;
 - réponse proposée qui ne correspond pas au type (« environ 14 » pour un nombre, « peut-être » pour
-  oui_non...), ou sans source.
+  oui_non...), ou sans source ;
+- variable (entrée du moteur de calcul) qui n'est pas dans les entrées à demander, rattachée à une
+  question dont la réponse n'est pas un nombre, ou rattachée à deux questions du tour ;
+- aucune question alors qu'il reste des entrées obligatoires à demander : le questionnaire ne
+  peut pas s'arrêter tant que le moteur manque de données que le dirigeant peut donner.
 Corrections faites sans erreur (sans conséquence sur le sens) : options retirées d'une question qui
 n'est pas un choix, source retirée quand il n'y a pas de réponse proposée, unité par défaut (€ pour
-un montant, % pour un pourcentage), documents en double retirés.
+un montant, % pour un pourcentage), unité de l'entrée imposée quand la question porte une variable,
+documents en double retirés.
 
 La réponse proposée validée est convertie au format JSON de `Question.answer` : nombre pour
 montant, pourcentage et nombre, booléen pour oui_non, texte sinon.
@@ -24,6 +29,8 @@ from datetime import date
 from .limites import MAX_QUESTIONS
 
 UNITES_PAR_DEFAUT = {"montant": "€", "pourcentage": "%"}
+# Réponse d'une question rattachée à une entrée du moteur : un nombre
+TYPES_VARIABLE = ("montant", "pourcentage", "nombre")
 OUI = {"oui", "true", "vrai"}
 NON = {"non", "false", "faux"}
 # Espaces (dont insécables) et symboles tolérés dans un nombre : « 340 000 € », « 5 % »
@@ -68,19 +75,57 @@ def convertir_reponse(answer_type: str, valeur: str, choices: list[str] | None):
     return valeur
 
 
-def valider_questions(sortie: dict, documents_audit: set[int], questions_precedentes: list[str]) -> tuple[dict, list[str]]:
+def _decrire(entree: dict) -> str:
+    return f"{entree['cle']} ({entree['label']}, en {entree['unite']})" if entree.get("unite") else entree["cle"]
+
+
+def _valider_variable(question: dict, prefixe: str, entrees: dict, variables_vues: set, erreurs: list) -> None:
+    """Contrôle la variable de la question et impose l'unité de l'entrée (question modifiée sur place)."""
+    variable = (question.get("variable") or "").strip() or None
+    question["variable"] = variable
+    if variable is None:
+        return
+    if variable not in entrees:
+        possibles = ", ".join(entrees) or "aucune"
+        erreurs.append(f"{prefixe} : variable « {variable} » inconnue ou déjà demandée à un tour précédent "
+                       f"(entrées possibles : {possibles}). Sinon, mets variable à null.")
+        return
+    if question["answer_type"] not in TYPES_VARIABLE:
+        erreurs.append(f"{prefixe} : la variable {variable} attend un nombre : type de réponse montant, "
+                       "pourcentage ou nombre.")
+    if variable in variables_vues:
+        erreurs.append(f"{prefixe} : variable {variable} déjà rattachée à une autre question de ce tour.")
+    variables_vues.add(variable)
+    if entrees[variable].get("unite"):
+        question["unit"] = entrees[variable]["unite"]
+
+
+def valider_questions(sortie: dict, documents_audit: set[int], questions_precedentes: list[str],
+                      entrees_a_demander: list[dict] | None = None) -> tuple[dict, list[str]]:
     """
     (sortie corrigée, erreurs). `sortie` : QuestionsGenerees en dictionnaire.
     `documents_audit` : identifiants des documents de l'audit ; `questions_precedentes` : textes des
-    questions des tours précédents.
+    questions des tours précédents ; `entrees_a_demander` : entrées du moteur que la question peut
+    porter en variable ({cle, label, unite, obligatoire...}, contexte de l'audit).
     """
     erreurs = []
     questions = sortie["questions"]
     if len(questions) > MAX_QUESTIONS:
         erreurs.append(f"{len(questions)} questions : {MAX_QUESTIONS} au maximum. Garde les plus importantes.")
 
+    entrees = {e["cle"]: e for e in entrees_a_demander or []}
+    obligatoires = [e for e in entrees.values() if e.get("obligatoire")]
+    if not questions and obligatoires:
+        erreurs.append(
+            "Aucune question alors que le moteur de calcul manque encore de ces entrées : "
+            + "; ".join(_decrire(e) for e in obligatoires)
+            + ". Pose une question pour chacune (variable = sa clé), dans la limite de "
+            f"{MAX_QUESTIONS} questions."
+        )
+
     deja_posees = {normaliser(q) for q in questions_precedentes}
     vues = set()
+    variables_vues = set()
     corrigees = []
     for numero, question in enumerate(questions, start=1):
         question = dict(question)
@@ -109,6 +154,7 @@ def valider_questions(sortie: dict, documents_audit: set[int], questions_precede
             question["choices"] = None
 
         question["unit"] = (question["unit"] or "").strip() or UNITES_PAR_DEFAUT.get(answer_type)
+        _valider_variable(question, prefixe, entrees, variables_vues, erreurs)
 
         document_ids = list(dict.fromkeys(question["document_ids"]))
         inconnus = [d for d in document_ids if d not in documents_audit]

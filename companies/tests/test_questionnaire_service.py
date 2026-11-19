@@ -87,8 +87,13 @@ class BuildQuestionsTests(SimpleTestCase):
                 {'label': 'Acompte perçu ?', 'rationale': 'Trésorerie.', 'answer_type': 'oui_non',
                  'choices': None, 'unit': None, 'document_ids': [],
                  'suggested_answer': False, 'suggested_answer_source': 'Devis 12, page 3'},
+                {'label': 'Heures par mois ?', 'rationale': 'Emo.', 'answer_type': 'nombre',
+                 'choices': None, 'unit': 'h', 'variable': 'volume_heures_mensuel', 'document_ids': [],
+                 'suggested_answer': None, 'suggested_answer_source': None},
             ],
         })
+        self.assertEqual(built[2][0].variable, 'volume_heures_mensuel')
+        built = built[:2]
         (first, first_documents), (second, second_documents) = built
         self.assertEqual((first.display_order, second.display_order), (1, 2))
         self.assertIs(first.questionnaire, questionnaire)

@@ -15,7 +15,9 @@ Déroulé de `generate_round` :
 
 Un tour en erreur est relancé sur la même ligne (même numéro, tokens cumulés) : les tours « ok »
 restent numérotés sans trou. Il n'y a pas de nombre maximal de tours : l'agent arrête le
-questionnaire en rendant un tour sans question.
+questionnaire en rendant un tour sans question. Le questionnaire n'est terminé que s'il ne reste
+aucune entrée obligatoire du moteur de calcul à demander (`is_finished`) : sinon un tour
+supplémentaire peut être généré, même après un tour sans question.
 Un tour resté « en_cours » (serveur arrêté pendant la génération) bloque l'audit : le passer en
 « erreur » à la main pour le relancer.
 """
@@ -31,6 +33,7 @@ from ..metier.questionnaire import StatutQuestionnaire
 from .anonymization import PseudonymMapping, deanonymize
 from .audit_context import read_audit_context_with_aliases
 from .calculation_tool import calculer
+from .cockpit import askable_entries, has_mandatory_entries
 from .investigation_tools import make_investigation_tools
 from .previous_questions import read_previous_questions
 from .structuring import to_json
@@ -53,15 +56,27 @@ class RoundResult:
     tool_calls: list[dict] = field(default_factory=list)
 
 
+def is_finished(rounds: list[Questionnaire], entries: list[dict]) -> bool:
+    """
+    Questionnaire terminé : le dernier tour « ok » n'a aucune question (l'agent n'a plus rien à
+    demander) et aucune entrée obligatoire du moteur ne reste à demander.
+    `rounds` : tours de l'audit avec leurs questions préchargées ; `entries` : `askable_entries`.
+    """
+    ok_rounds = [r for r in rounds if r.status == StatutQuestionnaire.OK]
+    return bool(ok_rounds) and not ok_rounds[-1].questions.all() and not has_mandatory_entries(entries)
+
+
 def prepare_round(audit_id: int) -> Questionnaire:
     """
     Vérifie qu'un nouveau tour peut être généré et renvoie sa ligne au statut « en_cours » : une
     nouvelle ligne, ou celle du dernier tour s'il est en erreur.
+    Après un tour sans question, un tour supplémentaire n'est possible que s'il reste une entrée
+    obligatoire du moteur de calcul à demander.
     Lève QuestionnaireError (aucune extraction, tour déjà en cours, questions sans réponse au
     dernier tour, questionnaire terminé) ou Audit.DoesNotExist.
     """
     with transaction.atomic():
-        audit = Audit.objects.select_for_update().get(pk=audit_id)
+        audit = Audit.objects.select_related('company__industry').select_for_update(of=('self',)).get(pk=audit_id)
         if not Extraction.objects.filter(document__audit=audit).exists():
             raise QuestionnaireError("Aucun document de l'audit n'a été extrait : rien sur quoi baser des questions.")
 
@@ -73,7 +88,7 @@ def prepare_round(audit_id: int) -> Questionnaire:
         if ok_rounds:
             last_ok = ok_rounds[-1]
             statuses = list(last_ok.questions.values_list('status', flat=True))
-            if not statuses:
+            if not statuses and not has_mandatory_entries(askable_entries(audit)):
                 raise QuestionnaireError(
                     f'Le questionnaire est terminé : le tour {last_ok.round_number} ne contenait plus aucune question.'
                 )
@@ -113,6 +128,7 @@ def build_questions(questionnaire: Questionnaire, result: dict) -> list[tuple[Qu
                 answer_type=item['answer_type'],
                 choices=to_json(item['choices']),
                 unit=item['unit'],
+                variable=item.get('variable'),
                 suggested_answer=to_json(item['suggested_answer']),
                 suggested_answer_source=item['suggested_answer_source'],
                 status=StatutQuestion.EN_ATTENTE,

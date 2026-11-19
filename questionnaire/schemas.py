@@ -31,6 +31,11 @@ class QuestionGeneree(Strict):
     )
     choices: list[str] | None = Field(description="Options proposées si answer_type = choix (au moins 2), sinon null.")
     unit: str | None = Field(description="Unité de la réponse (€, %, jours, mois, heures...), null si sans objet.")
+    variable: str | None = Field(
+        description="Clé de l'entrée du moteur de calcul que la question demande ou fait confirmer (liste "
+                    "entrees_a_demander du contexte, ex. volume_heures_mensuel), recopiée telle quelle ; null si la "
+                    "question ne porte sur aucune de ces entrées."
+    )
     document_ids: list[int] = Field(description="Identifiants des documents de l'audit qui ont motivé la question ; [] si aucun.")
     suggested_answer: str | None = Field(
         description="Réponse que les documents donnent déjà, à faire confirmer par le dirigeant ; null si les documents "

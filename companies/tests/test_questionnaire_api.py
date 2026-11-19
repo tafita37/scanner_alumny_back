@@ -8,7 +8,7 @@ import json
 from django.test import SimpleTestCase
 from django.urls import resolve, reverse
 
-from companies.controllers import questionnaire_controller
+from companies.controllers import cockpit_controller, questionnaire_controller
 from companies.controllers.questionnaire_controller import question_payload
 from companies.metier.question import Question
 from companies.serializers import MAX_TEXT_ANSWER_LENGTH, QuestionAnswerSerializer
@@ -74,6 +74,9 @@ class PayloadTests(SimpleTestCase):
             suggested_answer_source='Facture 70, page 1', status='repondue', answer='"30 jours"',
         )
         payload = question_payload(question, [12, 70])
+        self.assertIsNone(payload['variable'])
+        self.assertEqual(question_payload(Question(answer_type='nombre', variable='volume_heures_mensuel'), [])['variable'],
+                         'volume_heures_mensuel')
         self.assertEqual(payload['choices'], ['30 jours', '60 jours'])
         self.assertEqual((payload['suggested_answer'], payload['answer']), ('60 jours', '30 jours'))
         self.assertEqual(payload['document_ids'], [12, 70])
@@ -88,8 +91,10 @@ class RoutesTests(SimpleTestCase):
             ('companies:audit-questionnaires', {'audit_id': 6}, questionnaire_controller.list_questionnaires),
             ('companies:audit-questionnaires-generate', {'audit_id': 6}, questionnaire_controller.generate_questionnaire),
             ('companies:question-answer', {'pk': 5}, questionnaire_controller.answer_question),
+            ('companies:audit-cockpit', {'audit_id': 6}, cockpit_controller.get_cockpit),
         ]
         for name, kwargs, view in routes:
             with self.subTest(name=name):
                 self.assertIs(resolve(reverse(name, kwargs=kwargs)).func.cls, view.cls)
         self.assertEqual(reverse('companies:question-answer', kwargs={'pk': 5}), '/api/companies/questions/5/answer/')
+        self.assertEqual(reverse('companies:audit-cockpit', kwargs={'audit_id': 6}), '/api/companies/audits/6/cockpit/')

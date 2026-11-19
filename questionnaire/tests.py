@@ -16,14 +16,24 @@ def question(**champs) -> dict:
         "answer_type": "oui_non",
         "choices": None,
         "unit": None,
+        "variable": None,
         "document_ids": [12],
         "suggested_answer": None,
         "suggested_answer_source": None,
     } | champs
 
 
-def valider(*questions, precedentes=()):
-    return valider_questions({"analyse": " Analyse. ", "questions": list(questions)}, {12, 70, 73}, list(precedentes))
+def valider(*questions, precedentes=(), entrees=()):
+    return valider_questions({"analyse": " Analyse. ", "questions": list(questions)}, {12, 70, 73}, list(precedentes),
+                             list(entrees))
+
+
+ENTREES = [
+    {"cle": "volume_heures_mensuel", "label": "Volume d'heures mensuel", "unite": "h", "valeur": None,
+     "source": None, "obligatoire": True},
+    {"cle": "taux_horaire_facture", "label": "Taux horaire facturé", "unite": "€/h", "valeur": 42,
+     "source": "documents", "obligatoire": False},
+]
 
 
 class ConversionTests(TestCase):
@@ -100,6 +110,44 @@ class ValidationTests(TestCase):
                 self.assertTrue(any(message in e for e in erreurs), erreurs)
 
 
+class VariableTests(TestCase):
+
+    def test_variable_valide_et_unite_imposee(self):
+        resultat, erreurs = valider(
+            question(label="Heures travaillées par mois ?", answer_type="nombre", unit="heures/mois",
+                     variable=" volume_heures_mensuel "),
+            question(label="Taux horaire réel ?", answer_type="montant", variable="taux_horaire_facture",
+                     suggested_answer="42", suggested_answer_source="Devis 12, page 2"),
+            question(),
+            entrees=ENTREES,
+        )
+        self.assertEqual(erreurs, [])
+        premiere, seconde, troisieme = resultat["questions"]
+        self.assertEqual((premiere["variable"], premiere["unit"]), ("volume_heures_mensuel", "h"))
+        self.assertEqual((seconde["variable"], seconde["unit"]), ("taux_horaire_facture", "€/h"))
+        self.assertIsNone(troisieme["variable"])
+
+    def test_erreurs_de_variable(self):
+        cas = {
+            "inconnue ou déjà demandée": [question(answer_type="nombre", variable="charges_fixes_structure")],
+            "attend un nombre": [question(variable="volume_heures_mensuel")],
+            "déjà rattachée": [question(answer_type="nombre", variable="volume_heures_mensuel"),
+                               question(label="Autre ?", answer_type="nombre", variable="volume_heures_mensuel")],
+        }
+        for message, questions in cas.items():
+            with self.subTest(message=message):
+                erreurs = valider(*questions, entrees=ENTREES)[1]
+                self.assertTrue(any(message in e for e in erreurs), erreurs)
+
+    def test_pas_de_fin_tant_qu_il_reste_des_entrees_obligatoires(self):
+        erreurs = valider(entrees=ENTREES)[1]
+        self.assertEqual(len(erreurs), 1)
+        self.assertIn("volume_heures_mensuel (Volume d'heures mensuel, en h)", erreurs[0])
+        self.assertNotIn("taux_horaire_facture", erreurs[0])
+        # Seulement des entrées à confirmer : le questionnaire peut s'arrêter
+        self.assertEqual(valider(entrees=ENTREES[1:])[1], [])
+
+
 class NoeudValidationTests(TestCase):
 
     def etat(self, sortie_brute, essais=1):
@@ -121,6 +169,11 @@ class NoeudValidationTests(TestCase):
         self.assertTrue(maj["erreurs_a_corriger"])
         self.assertEqual(apres_validation(etat | maj), "redaction")
         self.assertEqual(apres_validation(etat | maj | {"essais_redaction": MAX_ESSAIS_REDACTION}), "echec")
+
+    def test_entrees_du_contexte(self):
+        etat = self.etat({"analyse": "A", "questions": []})
+        etat["contexte"]["entrees_a_demander"] = ENTREES
+        self.assertTrue(any("volume_heures_mensuel" in e for e in validation(etat)["erreurs_a_corriger"]))
 
     def test_schema_invalide(self):
         maj = validation(self.etat({"analyse": "A", "questions": [question(answer_type="inconnu")]}))

@@ -91,7 +91,7 @@ CREATE TABLE audit(
    profit DOUBLE PRECISION NOT NULL,
    publciation_year INTEGER NOT NULL,
    company_id INTEGER NOT NULL,
-   remaining_step INTEGER NOT NULL DEFAULT 3,
+   remaining_step INTEGER NOT NULL DEFAULT 4,
    audit_date DATE NOT NULL DEFAULT NOW(),
    PRIMARY KEY(id),
    FOREIGN KEY(company_id) REFERENCES company(id)
@@ -150,6 +150,7 @@ CREATE TABLE question(
    answer TEXT,
    suggested_answer TEXT,
    suggested_answer_source TEXT,
+   variable VARCHAR(50) ,
    questionnaire_id INTEGER NOT NULL,
    PRIMARY KEY(id),
    FOREIGN KEY(questionnaire_id) REFERENCES questionnaire(id)

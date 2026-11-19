@@ -31,6 +31,9 @@ class Question(models.Model):
     (même format JSON que `answer`), que l'utilisateur confirme ou corrige ; `suggested_answer_source`
     dit d'où elle vient (document, page, passage). Les deux sont vides si le LLM n'a rien trouvé.
     Une réponse différente de la proposition est une correction : la réalité diffère des documents.
+    `variable` : clé de l'entrée du moteur de calcul que la question demande (`structuration.moteurs`,
+    ex. volume_heures_mensuel), vide sinon. Sa réponse alimente alors le cockpit, en priorité sur
+    la valeur tirée des documents.
     """
 
     display_order = models.IntegerField("ordre d'affichage")
@@ -49,6 +52,7 @@ class Question(models.Model):
     answer = models.TextField('réponse (JSON)', null=True, blank=True)
     suggested_answer = models.TextField('réponse proposée (JSON)', null=True, blank=True)
     suggested_answer_source = models.TextField('source de la réponse proposée', null=True, blank=True)
+    variable = models.CharField('variable du moteur', max_length=50, null=True, blank=True)
     questionnaire = models.ForeignKey(Questionnaire, on_delete=models.PROTECT, related_name='questions')
 
     class Meta:
