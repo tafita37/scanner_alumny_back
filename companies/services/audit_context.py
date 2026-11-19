@@ -25,6 +25,7 @@ import re
 
 from ..models import Audit
 from .anonymization import normalize_text, value_regex
+from .cockpit import askable_entries
 from .indicators import compute_indicators, latest_extractions
 
 AUDITED_COMPANY_ALIAS = 'ENTREPRISE_AUDITEE'
@@ -160,6 +161,9 @@ def read_audit_context(audit_id: int) -> dict:
     - `donnees_publiees` est toujours renvoyé, même quand les comptes annuels existent : dans les
       indicateurs, ces chiffres ne servent qu'à défaut des comptes ; les avoir côte à côte permet
       au LLM de repérer un écart entre ce qui est publié et ce que disent les comptes.
+    - `entrees_a_demander` : entrées du moteur de calcul que les questions peuvent porter en
+      variable (obligatoires : manquantes ; sinon : valeur des documents à faire confirmer). Clés,
+      libellés, unités et montants seulement : aucune donnée personnelle.
     Lève Audit.DoesNotExist si l'audit n'existe pas.
     """
     return read_audit_context_with_aliases(audit_id)[0]
@@ -206,4 +210,5 @@ def read_audit_context_with_aliases(audit_id: int) -> tuple[dict, PartyAliases]:
         'documents_sans_extraction': [pk for pk in document_ids if pk not in latest],
         'indicateurs': compute_indicators(audit, latest),
     }
+    context['entrees_a_demander'] = askable_entries(audit, context['indicateurs'])
     return context, aliases

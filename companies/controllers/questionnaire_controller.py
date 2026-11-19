@@ -10,7 +10,8 @@ from ..metier.questionnaire import StatutQuestionnaire
 from ..metier.question import StatutQuestion
 from ..models import Audit, Document, Question, Questionnaire
 from ..serializers import QuestionAnswerSerializer
-from ..services.questionnaire import QuestionnaireError, generate_round
+from ..services.cockpit import askable_entries
+from ..services.questionnaire import QuestionnaireError, generate_round, is_finished
 from ..services.structuring import to_json
 
 
@@ -28,6 +29,7 @@ def question_payload(question: Question, document_ids: list[int]) -> dict:
         'answer_type': question.answer_type,
         'choices': decode(question.choices),
         'unit': question.unit,
+        'variable': question.variable,
         'document_ids': document_ids,
         'suggested_answer': decode(question.suggested_answer),
         'suggested_answer_source': question.suggested_answer_source,
@@ -62,25 +64,23 @@ def rounds_with_questions():
     return Questionnaire.objects.order_by('round_number').prefetch_related(Prefetch('questions', queryset=questions))
 
 
-def is_finished(rounds: list[Questionnaire]) -> bool:
-    """Questionnaire terminé : le dernier tour « ok » n'a aucune question (l'agent n'a plus rien à demander)."""
-    ok_rounds = [r for r in rounds if r.status == StatutQuestionnaire.OK]
-    return bool(ok_rounds) and not ok_rounds[-1].questions.all()
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_questionnaires(request, audit_id):
     """
     Tours du questionnaire adaptatif de l'audit (tous statuts), du premier au dernier, avec leurs
-    questions. `finished` : le questionnaire est terminé (dernier tour « ok » sans question).
+    questions. `finished` : le questionnaire est terminé (dernier tour « ok » sans question et
+    aucune entrée obligatoire du moteur de calcul à demander ; sinon un tour supplémentaire peut
+    être généré).
     404 si l'audit n'existe pas.
     """
-    if not Audit.objects.filter(pk=audit_id).exists():
+    audit = Audit.objects.select_related('company__industry').filter(pk=audit_id).first()
+    if audit is None:
         return Response({'detail': 'Audit introuvable.'}, status=status.HTTP_404_NOT_FOUND)
     rounds = list(rounds_with_questions().filter(audit_id=audit_id))
     return Response(
-        {'finished': is_finished(rounds), 'questionnaires': [questionnaire_payload(r) for r in rounds]},
+        {'finished': is_finished(rounds, askable_entries(audit)),
+         'questionnaires': [questionnaire_payload(r) for r in rounds]},
         status=status.HTTP_200_OK,
     )
 
@@ -91,9 +91,9 @@ def generate_questionnaire(request, audit_id):
     """
     Génère le tour suivant du questionnaire adaptatif de l'audit par l'agent IA (plusieurs appels
     au LLM : la réponse peut prendre une à deux minutes) et l'enregistre.
-    Renvoie le tour : statut `ok` (questions enregistrées ; aucune question : questionnaire
-    terminé, `finished` = true) ou `erreur` (`errors` dit pourquoi ; relancer la génération reprend
-    ce tour). `tool_calls` : appels de tools de l'agent pendant l'enquête (arguments anonymisés).
+    Renvoie le tour : statut `ok` (questions enregistrées ; aucune question et aucune entrée
+    obligatoire du moteur à demander : questionnaire terminé, `finished` = true) ou `erreur`
+    (`errors` dit pourquoi ; relancer la génération reprend ce tour). `tool_calls` : appels de tools de l'agent pendant l'enquête (arguments anonymisés).
     404 si l'audit n'existe pas ; 409 si le tour ne peut pas être généré (aucun document extrait,
     tour déjà en cours, questions du dernier tour sans réponse, questionnaire terminé).
     """
@@ -104,10 +104,16 @@ def generate_questionnaire(request, audit_id):
     except QuestionnaireError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
     questionnaire = rounds_with_questions().get(pk=result.questionnaire.pk)
+    finished = questionnaire.status == StatutQuestionnaire.OK and not questionnaire.questions.all()
+    if finished:
+        # Un tour sans question n'est validé que s'il ne reste aucune entrée obligatoire ; recontrôlé
+        # pour le cas où les données ont changé pendant la génération.
+        audit = Audit.objects.select_related('company__industry').get(pk=audit_id)
+        finished = is_finished([questionnaire], askable_entries(audit))
     return Response(
         {
             **questionnaire_payload(questionnaire),
-            'finished': questionnaire.status == StatutQuestionnaire.OK and not questionnaire.questions.all(),
+            'finished': finished,
             'errors': result.errors,
             'tool_calls': result.tool_calls,
         },

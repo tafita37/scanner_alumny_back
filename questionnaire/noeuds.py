@@ -143,7 +143,7 @@ def validation(etat: EtatQuestionnaire) -> dict:
     documents_audit |= set(contexte.get("documents_sans_extraction", []))
     deja_posees = [q["question"] for tour in etat["questions_precedentes"] for q in tour["questions"]]
 
-    resultat, err = valider_questions(sortie, documents_audit, deja_posees)
+    resultat, err = valider_questions(sortie, documents_audit, deja_posees, contexte.get("entrees_a_demander"))
     if err:
         return {"erreurs_a_corriger": err, "erreurs": etat["erreurs"] + err}
     return {"erreurs_a_corriger": [], "resultat": resultat, "statut": "ok"}
