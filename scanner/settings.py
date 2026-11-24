@@ -12,7 +12,14 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+
+import truststore
 from dotenv import load_dotenv
+
+# Vérifie les certificats HTTPS avec le magasin du système (Windows) plutôt qu'avec la liste
+# de certifi : un antivirus qui analyse le HTTPS (ex. Avast) y ajoute son propre certificat,
+# inconnu de certifi, ce qui ferait échouer les appels aux API externes (INSEE, Recherche d'entreprises).
+truststore.inject_into_ssl()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -45,7 +52,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'companies',
-    'structuration'
+    'structuration',
+    'questionnaire',
+    # 'django_extensions'
 ]
 
 MIDDLEWARE = [
