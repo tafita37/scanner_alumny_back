@@ -221,3 +221,7 @@ __marimo__/
 upload_files/
 
 fichiers.txt
+diagramme_classes.dot
+evaluation_detail.csv
+evaluation_resultats.json
+evaluer_corpus.py

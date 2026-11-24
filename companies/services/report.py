@@ -190,6 +190,7 @@ def generate_report(audit_id: int) -> Report:
             report.errors = None
             report.generated_at = timezone.now()
             report.save()
+            Audit.objects.filter(pk=audit_id).update(remaining_step=0)
         except Exception:
             (report_dir() / stored_name).unlink(missing_ok=True)
             raise
