@@ -32,6 +32,7 @@ from ..metier.question import StatutQuestion
 from ..metier.questionnaire import StatutQuestionnaire
 from ..metier.report import StatutRapport
 from .anonymization import PseudonymMapping, deanonymize
+from .audit_steps import DONE, REPORT, advance_to
 from .audit_context import read_audit_context_with_aliases
 from .cockpit import askable_entries, compute_cockpit
 from .previous_questions import read_previous_questions
@@ -75,10 +76,12 @@ def prepare_report(audit_id: int) -> Report:
             )
 
         report = Report.objects.filter(audit=audit).first()
+        if report is not None and report.status == StatutRapport.EN_COURS:
+            raise ReportError('Le rapport de cet audit est déjà en cours de génération.')
+        # La génération démarre : les résultats du cockpit sont validés, l'audit passe à l'étape du rapport.
+        advance_to(audit.id, REPORT)
         if report is None:
             return Report.objects.create(audit=audit, status=StatutRapport.EN_COURS)
-        if report.status == StatutRapport.EN_COURS:
-            raise ReportError('Le rapport de cet audit est déjà en cours de génération.')
         report.status = StatutRapport.EN_COURS
         report.errors = None
         report.save(update_fields=['status', 'errors'])
@@ -190,7 +193,7 @@ def generate_report(audit_id: int) -> Report:
             report.errors = None
             report.generated_at = timezone.now()
             report.save()
-            Audit.objects.filter(pk=audit_id).update(remaining_step=0)
+            advance_to(audit_id, DONE)
         except Exception:
             (report_dir() / stored_name).unlink(missing_ok=True)
             raise

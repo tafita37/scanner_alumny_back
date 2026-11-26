@@ -31,6 +31,7 @@ from ..models import Audit, Extraction, Question, Questionnaire
 from ..metier.question import StatutQuestion
 from ..metier.questionnaire import StatutQuestionnaire
 from .anonymization import PseudonymMapping, deanonymize
+from .audit_steps import COCKPIT, advance_to
 from .audit_context import read_audit_context_with_aliases
 from .calculation_tool import calculer
 from .cockpit import askable_entries, has_mandatory_entries
@@ -183,6 +184,11 @@ def generate_round(audit_id: int) -> RoundResult:
 
         result = aliases.restore(deanonymize(state['resultat'], mapping))
         questions = save_questions(questionnaire, result)
+        if not questions:
+            # Tour sans question : le questionnaire est terminé s'il ne reste aucune entrée obligatoire.
+            audit = Audit.objects.select_related('company__industry').get(pk=audit_id)
+            if not has_mandatory_entries(askable_entries(audit)):
+                advance_to(audit_id, COCKPIT)
         return RoundResult(questionnaire, questions, errors, state['appels_tools'])
     except Exception:
         # Erreur inattendue : le tour ne doit pas rester « en_cours », sinon il bloque l'audit.

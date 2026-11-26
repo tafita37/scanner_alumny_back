@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from .audit import Audit
 
@@ -14,6 +15,7 @@ class Questionnaire(models.Model):
     Un tour du questionnaire adaptatif d'un audit : lot de questions générées en une fois par le
     LLM, à partir des extractions, des indicateurs et des réponses aux tours précédents.
     `analysis` : synthèse du LLM (ce qu'il a compris, ce qui manque).
+    `created_at` : date de lancement du tour (sert à la dernière activité de l'audit, dashboard).
     Un tour « ok » sans aucune question signifie que le LLM n'a plus rien d'important à demander :
     le questionnaire de l'audit est terminé.
     """
@@ -25,7 +27,9 @@ class Questionnaire(models.Model):
     analysis = models.TextField('analyse', null=True, blank=True)
     input_tokens = models.IntegerField("tokens d'entrée", default=0)
     output_tokens = models.IntegerField('tokens de sortie', default=0)
-    audit = models.ForeignKey(Audit, on_delete=models.PROTECT, related_name='questionnaires')
+    # Vide pour les tours antérieurs à l'ajout de la colonne.
+    created_at = models.DateField('date de création', default=timezone.localdate, null=True, blank=True)
+    audit =models.ForeignKey(Audit, on_delete=models.PROTECT, related_name='questionnaires')
 
     class Meta:
         db_table = 'questionnaire'
