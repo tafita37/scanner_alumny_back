@@ -1,6 +1,7 @@
 import json
 
 from django.db.models import Prefetch
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -153,7 +154,8 @@ def answer_question(request, pk):
     serializer.is_valid(raise_exception=True)
     question.status = serializer.validated_data['status']
     question.answer = to_json(serializer.validated_data.get('answer')) if question.status == StatutQuestion.REPONDUE else None
-    question.save(update_fields=['status', 'answer'])
+    question.answered_at = None if question.status == StatutQuestion.EN_ATTENTE else timezone.localdate()
+    question.save(update_fields=['status', 'answer', 'answered_at'])
     return Response(
         question_payload(question, list(question.documents.order_by('id').values_list('id', flat=True))),
         status=status.HTTP_200_OK,

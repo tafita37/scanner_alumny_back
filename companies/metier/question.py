@@ -34,6 +34,8 @@ class Question(models.Model):
     `variable` : clé de l'entrée du moteur de calcul que la question demande (`structuration.moteurs`,
     ex. volume_heures_mensuel), vide sinon. Sa réponse alimente alors le cockpit, en priorité sur
     la valeur tirée des documents.
+    `answered_at` : date de la dernière réponse ou du dernier abandon (vide si en attente) ; sert à la
+    dernière activité de l'audit (dashboard).
     """
 
     display_order = models.IntegerField("ordre d'affichage")
@@ -53,6 +55,7 @@ class Question(models.Model):
     suggested_answer = models.TextField('réponse proposée (JSON)', null=True, blank=True)
     suggested_answer_source = models.TextField('source de la réponse proposée', null=True, blank=True)
     variable = models.CharField('variable du moteur', max_length=50, null=True, blank=True)
+    answered_at = models.DateField('date de réponse', null=True, blank=True)
     questionnaire = models.ForeignKey(Questionnaire, on_delete=models.PROTECT, related_name='questions')
 
     class Meta:

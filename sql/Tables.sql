@@ -133,6 +133,7 @@ CREATE TABLE questionnaire(
    analysis TEXT,
    input_tokens INTEGER NOT NULL DEFAULT 0,
    output_tokens INTEGER NOT NULL DEFAULT 0,
+   created_at DATE NOT NULL DEFAULT CURRENT_DATE,
    audit_id INTEGER NOT NULL,
    PRIMARY KEY(id),
    FOREIGN KEY(audit_id) REFERENCES audit(id)
@@ -151,6 +152,7 @@ CREATE TABLE question(
    suggested_answer TEXT,
    suggested_answer_source TEXT,
    variable VARCHAR(50) ,
+   answered_at DATE,
    questionnaire_id INTEGER NOT NULL,
    PRIMARY KEY(id),
    FOREIGN KEY(questionnaire_id) REFERENCES questionnaire(id)

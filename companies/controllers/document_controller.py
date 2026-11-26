@@ -14,6 +14,7 @@ from ..metier.extraction import StatutExtraction
 from ..models import Audit, Document
 from ..serializers import DocumentUploadSerializer
 from ..services.anonymization import anonymize_pages
+from ..services.audit_steps import advance_if_documents_extracted
 from ..services.docling_conversion import DocumentConversionError
 from ..services.indicators import compute_indicators
 from ..services.pdf_extraction import PdfExtractionError, extract_pdf
@@ -139,6 +140,8 @@ def delete_document(request, pk):
         document.delete()
         # Fichier déjà absent du disque : la suppression en base suffit.
         transaction.on_commit(lambda: file_path.unlink(missing_ok=True))
+    # Le document supprimé était peut-être le dernier à ne pas être extrait.
+    advance_if_documents_extracted(document.audit_id)
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 @api_view(['POST'])
@@ -187,6 +190,7 @@ def extract_document(request, pk):
         extraction = structure_document(document, result['pages'], result['errors'])
     except StructuringError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    advance_if_documents_extracted(document.audit_id)
     return Response(
         {**extraction_payload(extraction), 'indicateurs': compute_indicators(document.audit)},
         status=status.HTTP_200_OK,
